@@ -1,0 +1,49 @@
+# Umgebungsvariablen (enthält Passwörter/Credentials)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtuelle Umgebung
+.venv/
+venv/
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# Laufzeitordner
+output/xml/*
+output/pdf/*
+processed/*
+error/*
+
+# Behalte .gitkeep
+!output/xml/.gitkeep
+!output/pdf/.gitkeep
+!processed/.gitkeep
+!error/.gitkeep
+!logs/.gitkeep
+
+# XSD-Validierungsdateien (werden später heruntergeladen)
+src/xrechnung/xsd/
+
+# VS Code
+.vscode/settings.json
+.vscode/launch.json
+
+# PyInstaller
+*.spec
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# pytest
+.pytest_cache/
+.coverage
