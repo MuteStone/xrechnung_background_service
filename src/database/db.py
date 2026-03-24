@@ -240,7 +240,10 @@ def get_invoice_full(invoice_number: str) -> Optional[dict]:
                     "buyer_email":           rechnung_mail,
                     **billing,
                     "seller_name":           seller.get("seller_name") or "",
-                    "seller_street":         seller.get("seller_street") or "",
+                    "seller_street": (
+                        (seller.get("seller_street") or "") + " " +
+                        (seller.get("seller_house_number") or "")
+                    ).strip(),
                     "seller_zip":            seller.get("seller_zip") or "",
                     "seller_city":           seller.get("seller_city") or "",
                     "seller_country":        "DE",
