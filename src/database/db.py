@@ -2,6 +2,8 @@
 Datenbankanbindung — XRechnung-Hintergrunddienst
 =================================================
 Greift auf dieselbe MySQL-Datenbank wie die Kundenverwaltung zu.
+Nur lesender Zugriff auf FuxMedia-Tabellen (tb_*).
+Schreibender Zugriff nur auf app-eigene Tabellen (export_jobs).
 """
 
 import logging
@@ -14,6 +16,11 @@ import pymysql.cursors
 from src.utils.config import load_config
 
 logger = logging.getLogger("xrechnung.db")
+
+# Konstanten (identisch zur Kundenverwaltung)
+_EIGENSCHAFT_LEITWEG_ID    = 29
+_EIGENSCHAFT_RECHNUNG_MAIL = 27
+_TYP_RECHNUNG              = 3
 
 _config: Optional[dict] = None
 
@@ -46,11 +53,11 @@ def get_connection():
 
 
 def test_connection() -> bool:
-    """Prüft die Datenbankverbindung. Gibt True bei Erfolg zurück."""
+    """Prüft die Datenbankverbindung."""
     try:
         with get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT 1")
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
         logger.info("Datenbankverbindung erfolgreich")
         return True
     except Exception as e:
@@ -58,33 +65,238 @@ def test_connection() -> bool:
         return False
 
 
+# ──────────────────────────────────────────────────────────────
+# Interne Hilfsfunktionen (analog zur Kundenverwaltung)
+# ──────────────────────────────────────────────────────────────
+
+def _fetch_leitweg_id(cur, kundenid: int) -> str:
+    cur.execute(
+        "SELECT wert FROM tb_kundenzusatz "
+        "WHERE kundenid=%s AND eigenschaft=%s LIMIT 1",
+        (kundenid, _EIGENSCHAFT_LEITWEG_ID),
+    )
+    row = cur.fetchone()
+    return (row.get("wert") if row else None) or ""
+
+
+def _fetch_rechnung_mail(cur, kundenid: int) -> str:
+    cur.execute(
+        "SELECT wert FROM tb_kundenzusatz "
+        "WHERE kundenid=%s AND eigenschaft=%s LIMIT 1",
+        (kundenid, _EIGENSCHAFT_RECHNUNG_MAIL),
+    )
+    row = cur.fetchone()
+    return (row.get("wert") if row else None) or ""
+
+
+def _fetch_billing_address(cur, kundenid: int) -> dict:
+    """Rechnungsadresse aus tb_kunden_adressen (adressenart=2)."""
+    cur.execute(
+        """SELECT name1, name2, name3, name4, strasse, plz, ort
+           FROM tb_kunden_adressen
+           WHERE kundenid=%s AND adressenart=2 LIMIT 1""",
+        (kundenid,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {}
+    return {
+        "billing_name1":  row.get("name1") or "",
+        "billing_name2":  row.get("name2") or "",
+        "billing_name3":  row.get("name3") or "",
+        "billing_name4":  row.get("name4") or "",
+        "billing_street": row.get("strasse") or "",
+        "billing_zip":    row.get("plz") or "",
+        "billing_city":   row.get("ort") or "",
+    }
+
+
+def _fetch_seller_profile(cur) -> dict:
+    """Lädt das Standard-Seller-Profil aus app-eigener Tabelle."""
+    cur.execute("SELECT * FROM seller_profiles WHERE is_default=1 LIMIT 1")
+    row = cur.fetchone()
+    if not row:
+        cur.execute("SELECT * FROM seller_profiles LIMIT 1")
+        row = cur.fetchone()
+    return row or {}
+
+
+# ──────────────────────────────────────────────────────────────
+# Hauptfunktion: Vollständige Rechnungsdaten für XRechnung
+# ──────────────────────────────────────────────────────────────
+
 def get_invoice_full(invoice_number: str) -> Optional[dict]:
     """
     Lädt alle für eine XRechnung benötigten Daten:
-    Rechnungskopf, Positionen, Kundendaten, Seller-Profil.
+    Rechnungskopf, Positionen, Kundendaten, Seller-Profil,
+    Leitweg-ID und Rechnungsadresse.
 
     Args:
-        invoice_number: Rechnungsnummer (z. B. '20260105-001')
+        invoice_number: Rechnungsnummer aus dem PDF-Dateinamen
+                        (z. B. '20260105-001')
 
     Returns:
         Dictionary mit vollständigen Rechnungsdaten oder None bei Fehler.
-
-    TODO: Implementierung nach Klärung des DB-Schemas
     """
-    raise NotImplementedError("get_invoice_full — wird in Phase 2 implementiert")
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+
+                # --- Rechnungskopf ---
+                cur.execute(
+                    """SELECT d.dokumenteid, d.nummernkreis AS invoice_number,
+                              d.kundenid, d.dokumentdatum AS invoice_date,
+                              d.zieldatum AS due_date,
+                              d.nettobetrag AS total_net,
+                              d.mwstregelsatz AS total_tax,
+                              (COALESCE(d.nettobetrag,0)+COALESCE(d.mwstregelsatz,0))
+                                  AS total_gross,
+                              d.lieferung AS service_start,
+                              d.kommunikation AS payment_reference,
+                              d.dokumentstatus, d.mahnstufe
+                       FROM tb_dokumente d
+                       WHERE d.nummernkreis=%s AND d.typ=%s LIMIT 1""",
+                    (invoice_number, _TYP_RECHNUNG),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    logger.warning(f"Rechnung nicht gefunden: {invoice_number}")
+                    return None
+
+                kundenid    = inv["kundenid"]
+                dokumenteid = inv["dokumenteid"]
+
+                # --- Rechnungspositionen ---
+                cur.execute(
+                    """SELECT dp.positionenid AS position_no,
+                              dp.artikelcode  AS item_code,
+                              dp.bezeichnung  AS description,
+                              dp.anzahl       AS quantity,
+                              dp.einzelpreis  AS unit_price_net,
+                              dp.mwstsatz     AS tax_rate,
+                              dp.gesamt       AS line_total_net
+                       FROM tb_dokpositionen dp
+                       WHERE dp.dokumenteid=%s
+                       ORDER BY dp.positionenid ASC""",
+                    (dokumenteid,),
+                )
+                inv["items"] = cur.fetchall()
+
+                # --- Kundenstammdaten ---
+                cur.execute(
+                    """SELECT name1, name2, name3, name4,
+                              strasse, plz, ort, land, bundesland
+                       FROM tb_kunden WHERE kundenid=%s LIMIT 1""",
+                    (kundenid,),
+                )
+                kunde = cur.fetchone() or {}
+
+                # --- Bundesland-Name auflösen ---
+                bl_name = ""
+                bl_id = kunde.get("bundesland") or 0
+                if bl_id:
+                    cur.execute(
+                        "SELECT bdld_bezeichnung FROM tb_bundeslaender "
+                        "WHERE bundeslaenderid=%s LIMIT 1",
+                        (bl_id,),
+                    )
+                    bl_row = cur.fetchone()
+                    bl_name = (bl_row.get("bdld_bezeichnung") if bl_row else None) or ""
+
+                # --- Leitweg-ID & Rechnungsmail ---
+                leitweg_id    = _fetch_leitweg_id(cur, kundenid)
+                rechnung_mail = _fetch_rechnung_mail(cur, kundenid)
+
+                # --- Rechnungsadresse (Fallback: Hauptadresse) ---
+                billing = _fetch_billing_address(cur, kundenid)
+                if not billing.get("billing_name1"):
+                    billing = {
+                        "billing_name1":  kunde.get("name1") or "",
+                        "billing_name2":  kunde.get("name2") or "",
+                        "billing_name3":  kunde.get("name3") or "",
+                        "billing_name4":  kunde.get("name4") or "",
+                        "billing_street": kunde.get("strasse") or "",
+                        "billing_zip":    kunde.get("plz") or "",
+                        "billing_city":   kunde.get("ort") or "",
+                    }
+
+                # --- Seller-Profil ---
+                seller = _fetch_seller_profile(cur)
+
+                # --- Alles zusammenführen ---
+                inv.update({
+                    "currency":              "EUR",
+                    "buyer_name":            kunde.get("name1") or "",
+                    "buyer_name2":           kunde.get("name2") or "",
+                    "buyer_name3":           kunde.get("name3") or "",
+                    "buyer_name4":           kunde.get("name4") or "",
+                    "buyer_street":          kunde.get("strasse") or "",
+                    "buyer_zip":             kunde.get("plz") or "",
+                    "buyer_city":            kunde.get("ort") or "",
+                    "buyer_state":           bl_name,
+                    "buyer_country":         "DE" if (kunde.get("land") or "D") == "D" else (kunde.get("land") or "DE"),
+                    "buyer_customer_number": str(kundenid),
+                    "leitweg_id":            leitweg_id,
+                    "buyer_email":           rechnung_mail,
+                    **billing,
+                    "seller_name":           seller.get("seller_name") or "",
+                    "seller_street":         seller.get("seller_street") or "",
+                    "seller_zip":            seller.get("seller_zip") or "",
+                    "seller_city":           seller.get("seller_city") or "",
+                    "seller_country":        "DE",
+                    "seller_vat_id":         seller.get("vat_id") or "",
+                    "seller_iban":           seller.get("iban") or "",
+                    "seller_bic":            seller.get("bic") or "",
+                    "seller_email":          seller.get("contact_email") or "",
+                    "seller_phone":          seller.get("contact_phone") or "",
+                })
+
+                logger.info(
+                    f"Rechnungsdaten geladen: {invoice_number} "
+                    f"(Kunde {kundenid})"
+                )
+                return inv
+
+    except Exception as e:
+        logger.error(f"Fehler beim Laden der Rechnung {invoice_number}: {e}")
+        return None
+
+
+# ──────────────────────────────────────────────────────────────
+# Export-Job-Verwaltung
+# ──────────────────────────────────────────────────────────────
+
+def get_export_job_by_pdf_path(pdf_path: str) -> Optional[dict]:
+    """Lädt einen Export-Job anhand des PDF-Pfads."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT ej.*, d.nummernkreis AS invoice_number
+                       FROM export_jobs ej
+                       JOIN tb_dokumente d ON d.dokumenteid = ej.dokumenteid
+                       WHERE ej.pdf_path=%s LIMIT 1""",
+                    (pdf_path,),
+                )
+                return cur.fetchone()
+    except Exception as e:
+        logger.error(f"Fehler beim Laden des Export-Jobs ({pdf_path}): {e}")
+        return None
 
 
 def get_pending_export_jobs() -> list[dict]:
     """Gibt alle Export-Jobs mit Status 'pending' zurück."""
     try:
         with get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT * FROM export_jobs "
-                    "WHERE status = 'pending' "
-                    "ORDER BY created_at ASC"
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT ej.*, d.nummernkreis AS invoice_number
+                       FROM export_jobs ej
+                       JOIN tb_dokumente d ON d.dokumenteid = ej.dokumenteid
+                       WHERE ej.status = 'pending'
+                       ORDER BY ej.created_at ASC"""
                 )
-                return cursor.fetchall()
+                return cur.fetchall()
     except Exception as e:
         logger.error(f"Fehler beim Laden der Export-Jobs: {e}")
         return []
@@ -107,17 +319,12 @@ def update_export_job_status(
     """
     try:
         with get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    UPDATE export_jobs
-                    SET status     = %s,
-                        message    = %s,
-                        xml_path   = %s,
-                        updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (status, message, xml_path, job_id),
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE export_jobs
+                       SET status=%s, message=%s, xml_path=%s, updated_at=NOW()
+                       WHERE id=%s""",
+                    (status, message, xml_path or None, job_id),
                 )
         logger.debug(f"Export-Job {job_id} → {status}")
         return True
