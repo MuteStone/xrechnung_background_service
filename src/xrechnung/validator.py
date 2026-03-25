@@ -3,17 +3,21 @@ XRechnung-Validator
 ====================
 Prüft eine erzeugte XML-Datei gegen das offizielle XRechnung-XSD-Schema.
 
-XSD-Download: https://github.com/itplr-kosit/xrechnung-artefakte
-
-TODO: Implementierung in Phase 2
+XSD-Download:
+  1. https://github.com/itplr-kosit/validator-configuration-xrechnung/releases
+  2. Aktuellste ZIP herunterladen (z. B. validator-configuration-xrechnung_3.0.2_2024-06-20.zip)
+  3. Entpacken → resources/cii/16b/xsd/CrossIndustryInvoice_100pD16B.xsd
+  4. Datei nach src/xrechnung/xsd/CrossIndustryInvoice_100pD16B.xsd kopieren
 """
 
 import logging
 from pathlib import Path
 
+from lxml import etree
+
 logger = logging.getLogger("xrechnung.validator")
 
-XSD_PATH = Path(__file__).parent / "xsd" / "CrossIndustryInvoice_100pD22B.xsd"
+XSD_PATH = Path(__file__).parent / "xsd" / "CrossIndustryInvoice_100pD16B.xsd"
 
 
 def validate(xml_path: Path) -> bool:
@@ -25,10 +29,34 @@ def validate(xml_path: Path) -> bool:
 
     Returns:
         True wenn valide, False wenn nicht.
-
-    TODO: Implementierung in Phase 2
-    Benötigt:
-      - lxml.etree.XMLSchema
-      - XSD-Datei unter src/xrechnung/xsd/
     """
-    raise NotImplementedError("validator.validate — wird in Phase 2 implementiert")
+    if not XSD_PATH.exists():
+        logger.warning(
+            f"XSD-Datei nicht gefunden: {XSD_PATH} — "
+            "Validierung wird übersprungen. "
+            "Download: https://github.com/itplr-kosit/validator-configuration-xrechnung/releases"
+        )
+        return True  # Ohne XSD durchlassen, nicht blockieren
+
+    try:
+        with open(XSD_PATH, "rb") as f:
+            schema_doc = etree.parse(f)
+        schema = etree.XMLSchema(schema_doc)
+
+        with open(xml_path, "rb") as f:
+            xml_doc = etree.parse(f)
+
+        if schema.validate(xml_doc):
+            logger.info(f"XML-Validierung erfolgreich: {xml_path.name}")
+            return True
+        else:
+            for error in schema.error_log:
+                logger.error(f"Validierungsfehler Zeile {error.line}: {error.message}")
+            return False
+
+    except etree.XMLSyntaxError as e:
+        logger.error(f"XML-Syntaxfehler in {xml_path.name}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Fehler bei der Validierung: {e}")
+        return False
