@@ -10,9 +10,9 @@ from src.utils.config import load_config
 logger = logging.getLogger("xrechnung.db")
 
 # Konstanten (identisch zur Kundenverwaltung)
-_EIGENSCHAFT_LEITWEG_ID    = 29
-_EIGENSCHAFT_RECHNUNG_MAIL = 27
-_TYP_RECHNUNG              = 3
+_PROPERTY_ROUTING_ID    = 29
+_PROPERTY_INVOICE_EMAIL = 27
+_TYPE_INVOICE           = 3
 
 _config: Optional[dict] = None
 
@@ -65,7 +65,7 @@ def _fetch_leitweg_id(cur, kundenid: int) -> str:
     cur.execute(
         "SELECT wert FROM tb_kundenzusatz "
         "WHERE kundenid=%s AND eigenschaft=%s LIMIT 1",
-        (kundenid, _EIGENSCHAFT_LEITWEG_ID),
+        (kundenid, _PROPERTY_ROUTING_ID),
     )
     row = cur.fetchone()
     return (row.get("wert") if row else None) or ""
@@ -75,7 +75,7 @@ def _fetch_rechnung_mail(cur, kundenid: int) -> str:
     cur.execute(
         "SELECT wert FROM tb_kundenzusatz "
         "WHERE kundenid=%s AND eigenschaft=%s LIMIT 1",
-        (kundenid, _EIGENSCHAFT_RECHNUNG_MAIL),
+        (kundenid, _PROPERTY_INVOICE_EMAIL),
     )
     row = cur.fetchone()
     return (row.get("wert") if row else None) or ""
@@ -148,7 +148,7 @@ def get_invoice_full(invoice_number: str) -> Optional[dict]:
                               d.dokumentstatus, d.mahnstufe
                        FROM tb_dokumente d
                        WHERE d.nummernkreis=%s AND d.typ=%s LIMIT 1""",
-                    (invoice_number, _TYP_RECHNUNG),
+                    (invoice_number, _TYPE_INVOICE),
                 )
                 inv = cur.fetchone()
                 if not inv:
