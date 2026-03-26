@@ -1,7 +1,7 @@
 """
 XRechnung-Hintergrunddienst — Einstiegspunkt
 =============================================
-Wird täglich über den Windows Task Scheduler ausgeführt.
+Wird regelmäßig über den Windows Task Scheduler ausgeführt.
 
 Aufruf:
     python main.py               # Einmaliger Durchlauf (Task Scheduler)
@@ -25,7 +25,7 @@ from src.watcher.watcher import run_once, run_watch
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="XRechnung-Hintergrunddienst — FuxMedia GmbH & Co. KG"
+        description="XRechnung-Hintergrunddienst"
     )
     parser.add_argument(
         "--watch",
