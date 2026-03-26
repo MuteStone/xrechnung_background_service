@@ -1,9 +1,3 @@
-"""
-Transmitter — XRechnung per E-Mail an OZG-RE übertragen
-=========================================================
-SMTP via Gmail (App-Passwort, STARTTLS, IPv4 erzwungen).
-"""
-
 import logging
 import smtplib
 import socket

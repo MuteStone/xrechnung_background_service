@@ -1,17 +1,9 @@
-"""
-Konfiguration laden aus .env-Datei.
-"""
-
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
 
 def load_config() -> dict:
-    """
-    Lädt Konfiguration aus der .env-Datei im Projektstamm.
-    Gibt alle Werte als Dictionary zurück.
-    """
     env_path = Path(__file__).resolve().parents[2] / ".env"
     if not env_path.exists():
         raise FileNotFoundError(

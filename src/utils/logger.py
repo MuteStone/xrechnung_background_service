@@ -1,7 +1,3 @@
-"""
-Logging-Konfiguration: Rotating File Handler + Konsole.
-"""
-
 import logging
 import logging.handlers
 from pathlib import Path

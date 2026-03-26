@@ -1,11 +1,3 @@
-"""
-Datenbankanbindung — XRechnung-Hintergrunddienst
-=================================================
-Greift auf dieselbe MySQL-Datenbank wie die Kundenverwaltung zu.
-Nur lesender Zugriff auf FuxMedia-Tabellen (tb_*).
-Schreibender Zugriff nur auf app-eigene Tabellen (export_jobs).
-"""
-
 import logging
 from contextlib import contextmanager
 from typing import Optional
@@ -112,7 +104,7 @@ def _fetch_billing_address(cur, kundenid: int) -> dict:
 
 
 def _fetch_seller_profile(cur) -> dict:
-    """Lädt das Standard-Seller-Profil aus app-eigener Tabelle."""
+    """Lädt das Standard-Seller-Profil aus Tabelle."""
     cur.execute("SELECT * FROM seller_profiles WHERE is_default=1 LIMIT 1")
     row = cur.fetchone()
     if not row:

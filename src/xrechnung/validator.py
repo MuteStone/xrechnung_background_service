@@ -1,15 +1,3 @@
-"""
-XRechnung-Validator
-====================
-Prüft eine erzeugte XML-Datei gegen das offizielle XRechnung-XSD-Schema.
-
-XSD-Download:
-  1. https://github.com/itplr-kosit/validator-configuration-xrechnung/releases
-  2. Aktuellste ZIP herunterladen (z. B. validator-configuration-xrechnung_3.0.2_2024-06-20.zip)
-  3. Entpacken → resources/cii/16b/xsd/CrossIndustryInvoice_100pD16B.xsd
-  4. Datei nach src/xrechnung/xsd/CrossIndustryInvoice_100pD16B.xsd kopieren
-"""
-
 import logging
 from pathlib import Path
 
