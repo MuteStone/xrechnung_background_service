@@ -47,3 +47,6 @@ Desktop.ini
 # pytest
 .pytest_cache/
 .coverage
+
+# sonstiges
+ordnerstruktur.txt
