@@ -57,8 +57,8 @@ class PageDatabase(QWizardPage):
         )
         form = QFormLayout()
         form.setSpacing(8)
-        self.host     = QLineEdit()
-        self.port     = QLineEdit()
+        self.host     = QLineEdit("localhost")
+        self.port     = QLineEdit("3306")
         self.name     = QLineEdit()
         self.user     = QLineEdit()
         self.password = QLineEdit()
@@ -130,8 +130,8 @@ class PageSmtp(QWizardPage):
         )
         form = QFormLayout()
         form.setSpacing(8)
-        self.smtp_host      = QLineEdit()
-        self.smtp_port      = QLineEdit()
+        self.smtp_host      = QLineEdit("smtp.gmail.com")
+        self.smtp_port      = QLineEdit("587")
         self.smtp_user      = QLineEdit()
         self.smtp_password  = QLineEdit()
         self.smtp_password.setEchoMode(QLineEdit.Password)
@@ -148,8 +148,7 @@ class PageSmtp(QWizardPage):
         form.addRow("OZG-RE Empfänger:", self.ozg_email)
         form.addRow("Betreff:", self.ozg_subject)
         hint = QLabel(
-            "Hinweis: Verwenden Sie bei aktivierter 2-Faktor-Authentifizierung (2FA) "
-            "ein App-Passwort Ihres E-Mail-Anbieters, "
+            "Hinweis: Verwenden Sie bei aktivierter 2-Faktor Authentifizierung (2FA) ein App-Passwort Ihres E-Mail-Anbieters, "
             "nicht Ihr reguläres Kontopasswort."
         )
         hint.setWordWrap(True)
@@ -360,18 +359,33 @@ class SetupWizard(QWizard):
             )
 
     def _setup_scheduler(self):
-        main_py = BASE_DIR / "main.py"
-        if not main_py.exists():
-            QMessageBox.warning(
-                self, "Task Scheduler",
-                f"main.py wurde nicht gefunden unter:\n{main_py}\n\n"
-                "Bitte richten Sie den Task manuell ein."
-            )
-            return
+        # Wenn als EXE gebaut: XRechnung-Dienst.exe neben dem Setup suchen
+        # Sonst: python.exe mit main.py aufrufen
+        if getattr(sys, "frozen", False):
+            dienst_exe = BASE_DIR / "XRechnung-Dienst.exe"
+            if not dienst_exe.exists():
+                QMessageBox.warning(
+                    self, "Task Scheduler",
+                    f"XRechnung-Dienst.exe wurde nicht gefunden unter:\n{dienst_exe}\n\n"
+                    "Bitte legen Sie XRechnung-Dienst.exe in dasselbe Verzeichnis "
+                    "wie XRechnung-Setup.exe und versuchen Sie es erneut."
+                )
+                return
+            tr = f'"{dienst_exe}"'
+        else:
+            main_py = BASE_DIR / "main.py"
+            if not main_py.exists():
+                QMessageBox.warning(
+                    self, "Task Scheduler",
+                    f"main.py wurde nicht gefunden unter:\n{main_py}\n\n"
+                    "Bitte richten Sie den Task manuell ein."
+                )
+                return
+            tr = f'"{sys.executable}" "{main_py}"'
         cmd = [
             "schtasks", "/create",
             "/tn", "XRechnung-Hintergrunddienst",
-            "/tr", f'"{sys.executable}" "{main_py}"',
+            "/tr", tr,
             "/sc", "DAILY", "/st", "06:00", "/f",
         ]
         try:

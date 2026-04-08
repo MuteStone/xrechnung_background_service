@@ -1,14 +1,27 @@
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
 
+def _base_dir() -> Path:
+    """
+    Gibt das Basisverzeichnis zurück – sowohl im normalen Python-Betrieb
+    als auch wenn der Dienst als PyInstaller-EXE ausgeführt wird.
+    """
+    if getattr(sys, "frozen", False):
+        # PyInstaller-EXE: Verzeichnis der .exe
+        return Path(sys.executable).parent
+    # Normaler Betrieb: Projektstamm (zwei Ebenen über config.py)
+    return Path(__file__).resolve().parents[2]
+
+
 def load_config() -> dict:
-    env_path = Path(__file__).resolve().parents[2] / ".env"
+    env_path = _base_dir() / ".env"
     if not env_path.exists():
         raise FileNotFoundError(
             f".env-Datei nicht gefunden: {env_path}\n"
-            "Kopiere .env.example nach .env und trage deine Werte ein."
+            "Starten Sie XRechnung-Setup.exe zur Erstkonfiguration."
         )
 
     load_dotenv(dotenv_path=env_path)

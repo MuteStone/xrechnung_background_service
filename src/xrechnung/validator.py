@@ -1,3 +1,4 @@
+import sys
 import logging
 from pathlib import Path
 
@@ -5,29 +6,40 @@ from lxml import etree
 
 logger = logging.getLogger("xrechnung.validator")
 
-XSD_PATH = Path(__file__).parent / "xsd" / "CrossIndustryInvoice_100pD16B.xsd"
+
+def _xsd_path() -> Path:
+    """
+    Gibt den Pfad zur XSD-Datei zurück – kompatibel mit normalem
+    Python-Betrieb und PyInstaller-EXE (_MEIPASS enthält gebundelte Dateien).
+    """
+    if getattr(sys, "frozen", False):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).parent
+    return base / "xsd" / "CrossIndustryInvoice_100pD16B.xsd"
 
 
 def validate(xml_path: Path) -> bool:
     """
-    Validiert eine XRechnung-XML gegen das XSD-Schema.
+    Validiert eine XRechnung-XML gegen das lokale XSD-Schema (nicht-blockierend).
 
     Args:
         xml_path: Pfad zur zu prüfenden XML-Datei
 
     Returns:
-        True wenn valide, False wenn nicht.
+        True wenn valide oder XSD nicht vorhanden, False bei XML-Syntaxfehler.
     """
-    if not XSD_PATH.exists():
+    xsd_path = _xsd_path()
+
+    if not xsd_path.exists():
         logger.warning(
-            f"XSD-Datei nicht gefunden: {XSD_PATH} — "
+            f"XSD-Datei nicht gefunden: {xsd_path} — "
             "Validierung wird übersprungen. "
-            "Download: https://github.com/itplr-kosit/validator-configuration-xrechnung/releases"
         )
         return True  # Ohne XSD durchlassen, nicht blockieren
 
     try:
-        with open(XSD_PATH, "rb") as f:
+        with open(xsd_path, "rb") as f:
             schema_doc = etree.parse(f)
         schema = etree.XMLSchema(schema_doc)
 
