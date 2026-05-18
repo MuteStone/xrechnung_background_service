@@ -10,8 +10,8 @@ from typing import Optional
 
 logger = logging.getLogger("xrechnung.pdf_reader")
 
-# Dateiname-Format: Rechnung_YYYYMMDD-NNN.pdf
-_FILENAME_PATTERN = re.compile(r"^Rechnung_(\d{8}-\d{3})\.pdf$")
+# Dateiname-Format: Rechnung_YYYYMMDD-NNN.pdf (Groß-/Kleinschreibung egal)
+_FILENAME_PATTERN = re.compile(r"^[Rr]echnung_(\d{8}-\d{3})\.pdf$", re.IGNORECASE)
 
 
 def extract_invoice_number(pdf_path: Path) -> Optional[str]:

@@ -1,53 +1,73 @@
-# Umgebungsvariablen (enthält Passwörter/Credentials)
+# ============================================================
+# Umgebungsvariablen / Secrets
+# ============================================================
 .env
+.env.local
 
+# ============================================================
 # Python
+# ============================================================
 __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
-dist/
-build/
+.pytest_cache/
+.coverage
 
+# ============================================================
 # Virtuelle Umgebung
+# ============================================================
 .venv/
 venv/
 
+# ============================================================
 # Logs
-logs/*.log
-logs/*.log.*
+# ============================================================
+logs/*
+!logs/.gitkeep
 
-# Laufzeitordner
+# ============================================================
+# Laufzeit-/Ausgabeordner
+# ============================================================
 output/xml/*
 output/pdf/*
 processed/*
 error/*
+pdf/
 
-# Behalte .gitkeep
 !output/xml/.gitkeep
 !output/pdf/.gitkeep
 !processed/.gitkeep
 !error/.gitkeep
-!logs/.gitkeep
 
-# XSD-Validierungsdateien (werden später heruntergeladen)
+# ============================================================
+# Validierungsdateien
+# ============================================================
 src/xrechnung/xsd/
 
-# VS Code
+# ============================================================
+# Build / Packaging
+# ============================================================
+dist/
+build/
+*.spec
+*.zip
+
+# ============================================================
+# IDE / lokale Tools
+# ============================================================
 .vscode/settings.json
 .vscode/launch.json
+.idea/
+.claude/
 
-# PyInstaller
-*.spec
-
+# ============================================================
 # Windows
+# ============================================================
 Thumbs.db
 Desktop.ini
 
-# pytest
-.pytest_cache/
-.coverage
-
-# sonstiges
+# ============================================================
+# Sonstiges
+# ============================================================
 ordnerstruktur.txt
-output/

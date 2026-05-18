@@ -44,7 +44,7 @@ def _build_email(xml_path: Path, config: dict):
 
 
 def _send(msg, config: dict) -> None:
-    """Sendet die E-Mail via SMTP (STARTTLS, IPv4 erzwungen)."""
+    """Sendet die E-Mail via SMTP (intern, kein TLS, IPv4 erzwungen)."""
     original_getaddrinfo = socket.getaddrinfo
 
     def getaddrinfo_ipv4_only(*args, **kwargs):
@@ -56,11 +56,10 @@ def _send(msg, config: dict) -> None:
     try:
         with smtplib.SMTP(config["SMTP_HOST"], config["SMTP_PORT"]) as smtp:
             smtp.ehlo()
-            smtp.starttls()
-            smtp.ehlo()
-            smtp.login(config["SMTP_USER"], config["SMTP_PASSWORD"])
-            with open("debug_email.eml", "w") as f:
-                f.write(msg.as_string())
+            # Kein starttls() — David intern ohne TLS
+            # Login nur wenn SMTP_USER gesetzt und nicht leer
+            if config.get("SMTP_USER"):
+                smtp.login(config["SMTP_USER"], config["SMTP_PASSWORD"])
             smtp.send_message(msg)
     finally:
         socket.getaddrinfo = original_getaddrinfo

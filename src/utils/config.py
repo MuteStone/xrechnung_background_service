@@ -49,6 +49,23 @@ def load_config() -> dict:
         # OZG-RE
         "OZG_RE_EMAIL":   os.getenv("OZG_RE_EMAIL", "poststelle@bdr-portal.de"),
         "OZG_RE_SUBJECT": os.getenv("OZG_RE_SUBJECT", "XRechnung Einreichung"),
+        # Verkäuferdaten (Fallback wenn seller_profiles und alternative Tabellen fehlen)
+        "SELLER_NAME":    os.getenv("SELLER_NAME", ""),
+        "SELLER_STREET":  os.getenv("SELLER_STREET", ""),
+        "SELLER_ZIP":     os.getenv("SELLER_ZIP", ""),
+        "SELLER_CITY":    os.getenv("SELLER_CITY", ""),
+        "SELLER_VAT_ID":  os.getenv("SELLER_VAT_ID", ""),
+        "SELLER_IBAN":    os.getenv("SELLER_IBAN", ""),
+        "SELLER_BIC":     os.getenv("SELLER_BIC", ""),
+        "SELLER_EMAIL":   os.getenv("SELLER_EMAIL", ""),
+        "SELLER_PHONE":   os.getenv("SELLER_PHONE", ""),
+        # Scan & Ausgabe
+        "SCAN_JSON":        os.getenv("SCAN_JSON", "false"),
+        "ARCHIVE_PDF":      os.getenv("ARCHIVE_PDF", "false"),
+        "EXPORT_CSV":       os.getenv("EXPORT_CSV", "false"),
+        "OUTPUT_CSV":       os.getenv("OUTPUT_CSV", "output/csv"),
+        "EXPORT_JSON_DATA": os.getenv("EXPORT_JSON_DATA", "false"),
+        "OUTPUT_JSON_DATA": os.getenv("OUTPUT_JSON_DATA", "output/json_data"),
         # Logging
         "LOG_LEVEL":        os.getenv("LOG_LEVEL", "INFO"),
         "LOG_FILE":         os.getenv("LOG_FILE", "logs/xrechnung_dienst.log"),

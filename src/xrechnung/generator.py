@@ -7,6 +7,7 @@ Ausgabe: XML-Datei im OUTPUT_XML-Ordner
 """
 
 import logging
+import re
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from pathlib import Path
 from datetime import date
@@ -31,11 +32,14 @@ def _el(parent, ns, tag, text=None, **attrs):
 
 
 def _fmt_date(d):
+    """Gibt ein YYYYMMDD-Datum zurück, oder '' wenn der Wert kein gültiges Datum ist."""
     if isinstance(d, date):
         return d.strftime("%Y%m%d")
     if isinstance(d, str):
-        return d.replace("-", "")[:8]
-    return ""
+        normalized = d.replace("-", "").replace(".", "").replace(" ", "")[:8]
+        if len(normalized) == 8 and normalized.isdigit():
+            return normalized
+    return ""  # Ungültiger Wert (z. B. "Mai", "", None) → Element nicht erzeugen
 
 
 def _to_decimal(value, default="0.00"):
@@ -152,7 +156,7 @@ def _build_xml(d):
 
     if d.get("seller_vat_id"):
         st = _el(seller, "ram", "SpecifiedTaxRegistration")
-        _el(st, "ram", "ID", d["seller_vat_id"], schemeID="VA")
+        _el(st, "ram", "ID", re.sub(r"\s", "", d["seller_vat_id"]), schemeID="VA")
 
     # BuyerTradeParty
     buyer = _el(agr, "ram", "BuyerTradeParty")
@@ -179,16 +183,11 @@ def _build_xml(d):
 
     # HeaderTradeDelivery
     dlv = _el(tx, "ram", "ApplicableHeaderTradeDelivery")
-    if d.get("service_start"):
+    service_start_fmt = _fmt_date(d.get("service_start"))
+    if service_start_fmt:
         occ = _el(dlv, "ram", "ActualDeliverySupplyChainEvent")
         occ_dt = _el(occ, "ram", "OccurrenceDateTime")
-        _el(
-            occ_dt,
-            "udt",
-            "DateTimeString",
-            _fmt_date(d.get("service_start")),
-            format="102"
-        )
+        _el(occ_dt, "udt", "DateTimeString", service_start_fmt, format="102")
 
     # HeaderTradeSettlement
     stl = _el(tx, "ram", "ApplicableHeaderTradeSettlement")
@@ -199,7 +198,7 @@ def _build_xml(d):
         _el(pm, "ram", "TypeCode", "58")
 
         pa = _el(pm, "ram", "PayeePartyCreditorFinancialAccount")
-        _el(pa, "ram", "IBANID", d["seller_iban"])
+        _el(pa, "ram", "IBANID", re.sub(r"\s", "", d["seller_iban"]))
 
         if d.get("seller_bic"):
             fi = _el(pm, "ram", "PayeeSpecifiedCreditorFinancialInstitution")
