@@ -7,22 +7,24 @@ from pathlib import Path
 logger = logging.getLogger("xrechnung.transmitter")
 
 
-def transmit(xml_path: Path, config: dict) -> bool:
+def transmit(xml_path: Path, config: dict, pdf_path: Path = None) -> bool:
     try:
-        msg = _build_email(xml_path, config)
+        msg = _build_email(xml_path, config, pdf_path)
         _send(msg, config)
         logger.info(
             f"XRechnung übertragen: {xml_path.name} "
             f"→ {config['OZG_RE_EMAIL']}"
         )
+        if pdf_path:
+            logger.info(f"PDF mitgesendet: {pdf_path.name}")
         return True
     except Exception as e:
         logger.error(f"Übertragung fehlgeschlagen: {e}")
         return False
 
 
-def _build_email(xml_path: Path, config: dict):
-    """Baut die E-Mail mit XML-Anhang zusammen."""
+def _build_email(xml_path: Path, config: dict, pdf_path: Path = None):
+    """Baut die E-Mail mit XML-Anhang (und optional PDF-Anhang) zusammen."""
     from email.message import EmailMessage
 
     msg = EmailMessage()
@@ -30,6 +32,7 @@ def _build_email(xml_path: Path, config: dict):
     msg["To"]      = config["OZG_RE_EMAIL"]
     msg["Subject"] = config["OZG_RE_SUBJECT"]
 
+    # Anhang 1: XRechnung-XML (Pflicht)
     with open(xml_path, "rb") as f:
         xml_data = f.read()
 
@@ -39,6 +42,17 @@ def _build_email(xml_path: Path, config: dict):
         subtype="xml",
         filename=xml_path.name,
     )
+
+    # Anhang 2: Original-PDF (optional, wenn Pfad übergeben wurde)
+    if pdf_path and pdf_path.exists():
+        with open(pdf_path, "rb") as f:
+            pdf_data = f.read()
+        msg.add_attachment(
+            pdf_data,
+            maintype="application",
+            subtype="pdf",
+            filename=pdf_path.name,
+        )
 
     return msg
 

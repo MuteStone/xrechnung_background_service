@@ -255,6 +255,23 @@ def process_file(
     # Schritt 3: Verkäuferdaten-Fallback
     _apply_seller_fallback(invoice_data, file_path, config)
 
+    # Schritt 3b: Leistungsdatum aus PDF ermitteln (nur bei PDF-Eingabe)
+    # Primär: Startdatum des Abrechnungszeitraums aus dem PDF-Text.
+    # Fallback: Rechnungsdatum (behebt BR-DE-TMP-32 wenn kein Zeitraum angegeben).
+    if not invoice_data.get("service_start") and file_path.suffix.lower() == ".pdf":
+        try:
+            from src.xrechnung.pdf_reader import extract_service_start_date
+            pdf_service_start = extract_service_start_date(file_path)
+            if pdf_service_start:
+                invoice_data["service_start"] = pdf_service_start
+                logger.info("Leistungsbeginn aus PDF: %s", pdf_service_start)
+            else:
+                logger.debug(
+                    "Kein Abrechnungszeitraum im PDF — Fallback auf Rechnungsdatum"
+                )
+        except Exception as e:
+            logger.warning("Leistungsdatum aus PDF nicht lesbar: %s", e)
+
     # Schritt 4: XML generieren
     try:
         from src.xrechnung.generator import generate

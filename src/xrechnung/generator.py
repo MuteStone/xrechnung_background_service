@@ -181,13 +181,16 @@ def _build_xml(d):
         bu = _el(buyer, "ram", "URIUniversalCommunication")
         _el(bu, "ram", "URIID", leitweg, schemeID="0204")
 
-    # HeaderTradeDelivery
+    # HeaderTradeDelivery — BT-72 (Actual delivery date)
+    # Primär: Liefer-/Leistungsdatum aus DB (lieferung-Feld).
+    # Fallback: Rechnungsdatum, da bei FuxMedia-Rechnungen kein explizites
+    # Lieferdatum angegeben wird (behebt BR-DE-TMP-32).
     dlv = _el(tx, "ram", "ApplicableHeaderTradeDelivery")
-    service_start_fmt = _fmt_date(d.get("service_start"))
-    if service_start_fmt:
+    delivery_date_fmt = _fmt_date(d.get("service_start")) or _fmt_date(d.get("invoice_date"))
+    if delivery_date_fmt:
         occ = _el(dlv, "ram", "ActualDeliverySupplyChainEvent")
         occ_dt = _el(occ, "ram", "OccurrenceDateTime")
-        _el(occ_dt, "udt", "DateTimeString", service_start_fmt, format="102")
+        _el(occ_dt, "udt", "DateTimeString", delivery_date_fmt, format="102")
 
     # HeaderTradeSettlement
     stl = _el(tx, "ram", "ApplicableHeaderTradeSettlement")
