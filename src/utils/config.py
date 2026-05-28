@@ -35,8 +35,6 @@ def load_config() -> dict:
         "DB_PASSWORD": os.getenv("DB_PASSWORD", ""),
         # Pfade
         "WATCH_FOLDER":     os.getenv("WATCH_FOLDER", ""),
-        "OUTPUT_XML":       os.getenv("OUTPUT_XML", "output/xml"),
-        "OUTPUT_PDF":       os.getenv("OUTPUT_PDF", "output/pdf"),
         "PROCESSED_FOLDER": os.getenv("PROCESSED_FOLDER", "processed"),
         "ERROR_FOLDER":     os.getenv("ERROR_FOLDER", "error"),
         # SMTP
@@ -59,13 +57,11 @@ def load_config() -> dict:
         "SELLER_BIC":     os.getenv("SELLER_BIC", ""),
         "SELLER_EMAIL":   os.getenv("SELLER_EMAIL", ""),
         "SELLER_PHONE":   os.getenv("SELLER_PHONE", ""),
-        # Scan & Ausgabe
+        # Scan-Einstellungen
         "SCAN_JSON":        os.getenv("SCAN_JSON", "false"),
-        "ARCHIVE_PDF":      os.getenv("ARCHIVE_PDF", "false"),
-        "EXPORT_CSV":       os.getenv("EXPORT_CSV", "false"),
-        "OUTPUT_CSV":       os.getenv("OUTPUT_CSV", "output/csv"),
-        "EXPORT_JSON_DATA": os.getenv("EXPORT_JSON_DATA", "false"),
-        "OUTPUT_JSON_DATA": os.getenv("OUTPUT_JSON_DATA", "output/json_data"),
+        # Protokoll-Mail (interner Bericht nach Verarbeitungslauf)
+        "REPORT_EMAIL":       os.getenv("REPORT_EMAIL", ""),
+        "REPORT_ATTACH_XML":  os.getenv("REPORT_ATTACH_XML", "false"),
         # Logging
         "LOG_LEVEL":        os.getenv("LOG_LEVEL", "INFO"),
         "LOG_FILE":         os.getenv("LOG_FILE", "logs/xrechnung_dienst.log"),

@@ -19,6 +19,7 @@ import logging
 import re
 import shutil
 import time
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -39,24 +40,138 @@ def _cfg_bool(config: dict, key: str) -> bool:
     return str(config.get(key, "false")).lower() == "true"
 
 
-def _move_to_processed(file_path: Path, config: dict) -> None:
-    dest = Path(config["PROCESSED_FOLDER"]) / file_path.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.move(str(file_path), str(dest))
-    except Exception as e:
-        logger.warning("Verschieben fehlgeschlagen: %s", e)
-    logger.debug("→ processed/: %s", file_path.name)
+def _move_to_processed(
+    file_path: Path,
+    config: dict,
+    companion_json: Optional[Path] = None,
+    xml_path: Optional[Path] = None,
+) -> None:
+    """
+    Verschiebt alle zu einer erfolgreich verarbeiteten Rechnung gehörenden
+    Dateien in einen eigenen Unterordner unter PROCESSED_FOLDER.
+
+    Ordnerstruktur:
+        processed/
+          <invoice_number_or_stem>/
+            <dateiname>.pdf   (oder .json bei Standalone-JSON)
+            <dateiname>.json  (falls companion_json vorhanden)
+            <dateiname>.xml   (bereits direkt hier erzeugt, kein Kopieren nötig)
+    """
+    folder_name  = file_path.stem
+    processed_dir = Path(config["PROCESSED_FOLDER"]) / folder_name
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
+    # Quelldatei(en) verschieben
+    for src in [file_path, companion_json]:
+        if src and src.exists():
+            try:
+                shutil.move(str(src), str(processed_dir / src.name))
+            except Exception as e:
+                logger.warning("Verschieben (processed) fehlgeschlagen (%s): %s", src.name, e)
+
+    # XML wurde bereits direkt in processed/<stem>/ erzeugt — kein Kopieren nötig
+
+    logger.debug("→ processed/%s/: %s", folder_name, file_path.name)
 
 
-def _move_to_error(file_path: Path, config: dict) -> None:
-    dest = Path(config["ERROR_FOLDER"]) / file_path.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _move_to_error(
+    file_path: Path,
+    config: dict,
+    reason: str = "",
+    companion_json: Optional[Path] = None,
+) -> None:
+    """
+    Verschiebt eine fehlgeschlagene Rechnung in einen eigenen Unterordner
+    unter ERROR_FOLDER und erstellt eine Fehler-Log-Datei.
+
+    Ordnerstruktur:
+        error/
+          YYYYMMDD_HHMMSS_<stem>/
+            <dateiname>.pdf   (oder .json)
+            <dateiname>.json  (falls companion_json vorhanden)
+            error_report.txt
+    """
+    timestamp  = datetime.now()
+    ts_str     = timestamp.strftime("%Y%m%d_%H%M%S")
+    folder_name = f"{ts_str}_{file_path.stem}"
+    error_dir   = Path(config["ERROR_FOLDER"]) / folder_name
+    error_dir.mkdir(parents=True, exist_ok=True)
+
+    # Quelldatei verschieben
+    for src in [file_path, companion_json]:
+        if src and src.exists():
+            try:
+                shutil.move(str(src), str(error_dir / src.name))
+            except Exception as e:
+                logger.warning("Verschieben (error) fehlgeschlagen (%s): %s", src.name, e)
+
+    # Fehler-Log-Datei erstellen
+    _write_error_report(
+        error_dir=error_dir,
+        file_path=file_path,
+        companion_json=companion_json,
+        reason=reason,
+        timestamp=timestamp,
+        config=config,
+    )
+
+    logger.warning("→ error/%s/: %s", folder_name, file_path.name)
+
+
+def _write_error_report(
+    error_dir: Path,
+    file_path: Path,
+    companion_json: Optional[Path],
+    reason: str,
+    timestamp: datetime,
+    config: dict,
+) -> None:
+    """Schreibt eine strukturierte Fehler-Log-Datei für eine fehlgeschlagene Rechnung."""
+    report_path = error_dir / "error_report.txt"
+    lines = [
+        "XRechnung-Hintergrunddienst – Fehlerprotokoll",
+        "=" * 52,
+        f"Zeitstempel:   {timestamp.strftime('%d.%m.%Y %H:%M:%S')}",
+        f"Quelldatei:    {file_path.name}",
+    ]
+    if companion_json:
+        lines.append(f"Begleit-JSON:  {companion_json.name}")
+    lines += [
+        f"Fehlerordner:  {error_dir.name}",
+        "",
+        "Fehlerursache:",
+        "-" * 52,
+        reason if reason else "(kein Fehlergrund übermittelt)",
+        "",
+        "Log-Auszug (letzte Einträge dieses Dienstlaufs):",
+        "-" * 52,
+    ]
+
+    # Letzte Log-Zeilen aus der konfigurierten Log-Datei lesen
     try:
-        shutil.move(str(file_path), str(dest))
+        log_file = Path(config.get("LOG_FILE", ""))
+        if log_file.exists():
+            with open(log_file, "r", encoding="utf-8", errors="replace") as lf:
+                all_lines = lf.readlines()
+            # Letzte 40 Zeilen, gefiltert auf den Dateinamen der Rechnung
+            stem = file_path.stem
+            relevant = [
+                ln.rstrip()
+                for ln in all_lines
+                if stem in ln or "ERROR" in ln or "WARNING" in ln
+            ][-40:]
+            lines += relevant if relevant else ["(keine passenden Log-Einträge gefunden)"]
+        else:
+            lines.append("(Log-Datei nicht gefunden)")
     except Exception as e:
-        logger.warning("Verschieben (error) fehlgeschlagen: %s", e)
-    logger.warning("→ error/: %s", file_path.name)
+        lines.append(f"(Log-Auszug nicht verfügbar: {e})")
+
+    lines += ["", "=" * 52]
+
+    try:
+        report_path.write_text("\n".join(lines), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Fehler-Log-Datei konnte nicht erstellt werden: %s", e)
 
 
 def _apply_seller_fallback(invoice_data: dict, file_path: Path, config: dict) -> None:
@@ -111,57 +226,6 @@ def _apply_seller_fallback(invoice_data: dict, file_path: Path, config: dict) ->
         )
 
 
-def _export_csv(invoice_data: dict, output_dir: str) -> None:
-    try:
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        nr   = invoice_data.get("invoice_number", "rechnung")
-        path = out / f"{nr}.csv"
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.writer(f, delimiter=";")
-            w.writerow(["Rechnungsnummer", nr])
-            w.writerow(["Datum",            str(invoice_data.get("invoice_date", ""))])
-            w.writerow(["Fälligkeitsdatum", str(invoice_data.get("due_date", ""))])
-            w.writerow(["Käufer",           invoice_data.get("buyer_name", "")])
-            w.writerow(["Verkäufer",        invoice_data.get("seller_name", "")])
-            w.writerow([])
-            w.writerow(["Pos.", "Artikel-Nr.", "Bezeichnung", "Menge",
-                        "Einzelpreis (netto)", "MwSt. %", "Gesamt (netto)"])
-            for item in invoice_data.get("items", []):
-                w.writerow([
-                    item.get("position_no", ""),
-                    item.get("item_code", ""),
-                    item.get("description", ""),
-                    item.get("quantity", ""),
-                    item.get("unit_price_net", ""),
-                    item.get("tax_rate", ""),
-                    item.get("line_total_net", ""),
-                ])
-        logger.info("CSV exportiert: %s", path.name)
-    except Exception as e:
-        logger.error("CSV-Export fehlgeschlagen: %s", e)
-
-
-def _export_json_data(invoice_data: dict, output_dir: str) -> None:
-    try:
-        out  = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        nr   = invoice_data.get("invoice_number", "rechnung")
-        path = out / f"{nr}_data.json"
-
-        def _default(obj):
-            import decimal, datetime
-            if isinstance(obj, decimal.Decimal):
-                return str(obj)
-            if isinstance(obj, (datetime.date, datetime.datetime)):
-                return obj.isoformat()
-            return str(obj)
-
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(invoice_data, f, ensure_ascii=False, indent=2, default=_default)
-        logger.info("JSON-Daten exportiert: %s", path.name)
-    except Exception as e:
-        logger.error("JSON-Daten-Export fehlgeschlagen: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +241,9 @@ def process_file(
     """
     Verarbeitungs-Pipeline für eine einzelne Rechnung (PDF oder JSON).
     Bei companion_json: PDF als Anker, JSON liefert Positionen, DB ergänzt fehlende Felder.
+
+    Returns:
+        (success: bool, xml_path: Path | None)
     """
     logger.info("Verarbeite: %s", file_path.name)
 
@@ -200,8 +267,12 @@ def process_file(
 
     if not invoice_number:
         logger.error("Rechnungsnummer nicht gefunden: %s", file_path.name)
-        _move_to_error(file_path, config)
-        return False
+        _move_to_error(
+            file_path, config,
+            reason="Rechnungsnummer konnte nicht aus der Datei extrahiert werden.",
+            companion_json=companion_json,
+        )
+        return False, None
 
     logger.info("Rechnungsnummer: %s", invoice_number)
 
@@ -249,8 +320,12 @@ def process_file(
 
     if not invoice_data:
         logger.error("Keine Rechnungsdaten für %s", invoice_number)
-        _move_to_error(file_path, config)
-        return False
+        _move_to_error(
+            file_path, config,
+            reason=f"Keine Rechnungsdaten in der Datenbank für Rechnungsnummer: {invoice_number}",
+            companion_json=companion_json,
+        )
+        return False, None
 
     # Schritt 3: Verkäuferdaten-Fallback
     _apply_seller_fallback(invoice_data, file_path, config)
@@ -275,15 +350,22 @@ def process_file(
     # Schritt 4: XML generieren
     try:
         from src.xrechnung.generator import generate
-        xml_path = generate(invoice_data, Path(config["OUTPUT_XML"]))
+        # XML direkt in den Processed-Unterordner des Rechnungsstems erzeugen
+        xml_out_dir = Path(config["PROCESSED_FOLDER"]) / file_path.stem
+        xml_out_dir.mkdir(parents=True, exist_ok=True)
+        xml_path = generate(invoice_data, xml_out_dir)
     except Exception as e:
         logger.error("XML-Generierung fehlgeschlagen: %s", e)
         xml_path = None
 
     if not xml_path:
         logger.error("XML-Generierung fehlgeschlagen: %s", invoice_number)
-        _move_to_error(file_path, config)
-        return False
+        _move_to_error(
+            file_path, config,
+            reason=f"XRechnung-XML konnte nicht erzeugt werden (Rechnungsnummer: {invoice_number}).",
+            companion_json=companion_json,
+        )
+        return False, None
 
     logger.info("XML erzeugt: %s", xml_path.name)
 
@@ -297,26 +379,15 @@ def process_file(
 
     if not valid:
         logger.error("XML-Validierung fehlgeschlagen: %s", xml_path.name)
-        _move_to_error(file_path, config)
-        return False
+        _move_to_error(
+            file_path, config,
+            reason=f"XSD-Validierung fehlgeschlagen: {xml_path.name} entspricht nicht dem XRechnung-Schema.",
+            companion_json=companion_json,
+        )
+        return False, None
 
     logger.info("XML-Validierung erfolgreich")
 
-    # Schritt 6: Zusatzexporte
-    if _cfg_bool(config, "EXPORT_CSV") and config.get("OUTPUT_CSV"):
-        _export_csv(invoice_data, config["OUTPUT_CSV"])
-
-    if _cfg_bool(config, "EXPORT_JSON_DATA") and config.get("OUTPUT_JSON_DATA"):
-        _export_json_data(invoice_data, config["OUTPUT_JSON_DATA"])
-
-    if _cfg_bool(config, "ARCHIVE_PDF") and file_path.suffix.lower() == ".pdf":
-        try:
-            arch = Path(config.get("OUTPUT_PDF", "output/pdf"))
-            arch.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(file_path), str(arch / file_path.name))
-            logger.info("PDF archiviert: %s", file_path.name)
-        except Exception as e:
-            logger.warning("PDF-Archivierung fehlgeschlagen: %s", e)
 
     # Schritt 7: Übertragen
     if dry_run:
@@ -326,18 +397,30 @@ def process_file(
             from src.transmitter.transmitter import transmit
             if not transmit(xml_path, config):
                 logger.error("Übertragung fehlgeschlagen: %s", xml_path.name)
-                _move_to_error(file_path, config)
-                return False
+                _move_to_error(
+                    file_path, config,
+                    reason=f"E-Mail-Versand an OZG-RE fehlgeschlagen (transmit() → False): {xml_path.name}",
+                    companion_json=companion_json,
+                )
+                return False, None
         except Exception as e:
             logger.error("Übertragung fehlgeschlagen: %s", e)
-            _move_to_error(file_path, config)
-            return False
+            _move_to_error(
+                file_path, config,
+                reason=f"E-Mail-Versand an OZG-RE fehlgeschlagen (Exception): {e}",
+                companion_json=companion_json,
+            )
+            return False, None
         logger.info("Übertragung erfolgreich")
 
-    # Schritt 8: Quelldatei verschieben
-    _move_to_processed(file_path, config)
+    # Schritt 8: Quelldatei(en) und XML in processed/ verschieben
+    _move_to_processed(
+        file_path, config,
+        companion_json=companion_json,
+        xml_path=xml_path,
+    )
     logger.info("Abgeschlossen: %s", file_path.name)
-    return True
+    return True, xml_path
 
 
 # ---------------------------------------------------------------------------
@@ -458,12 +541,38 @@ def run_once(config: dict, dry_run: bool = False) -> tuple[int, int]:
         _log_pair_discrepancies(companion_map)
 
     processed = failed = 0
+    invoice_names: list = []
+    failed_names:  list = []
+    xml_paths:     list = []
+
     for file_path in files:
         companion = companion_map.get(file_path)
-        if process_file(file_path, config, dry_run=dry_run, companion_json=companion):
+        success, xml_path = process_file(
+            file_path, config, dry_run=dry_run, companion_json=companion
+        )
+        if success:
             processed += 1
+            invoice_names.append(file_path.name)
+            if xml_path:
+                xml_paths.append(xml_path)
         else:
             failed += 1
+            failed_names.append(file_path.name)
+
+    # Protokoll-Mail nach Abschluss des Laufs (nur wenn REPORT_EMAIL konfiguriert)
+    if not dry_run:
+        try:
+            from src.transmitter.transmitter import send_report
+            send_report(
+                config=config,
+                processed=processed,
+                failed=failed,
+                invoice_names=invoice_names,
+                failed_names=failed_names,
+                xml_paths=xml_paths,
+            )
+        except Exception as e:
+            logger.warning("Protokoll-Mail nicht gesendet: %s", e)
 
     return processed, failed
 

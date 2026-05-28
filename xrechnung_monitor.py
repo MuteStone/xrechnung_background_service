@@ -231,11 +231,7 @@ def load_config_safe() -> Optional[dict]:
         return None
 
     # Monitor-spezifische Felder nachladen (dotenv hat sie bereits in os.environ)
-    cfg["SCAN_JSON"]        = os.getenv("SCAN_JSON", "false")
-    cfg["EXPORT_CSV"]       = os.getenv("EXPORT_CSV", "false")
-    cfg["OUTPUT_CSV"]       = os.getenv("OUTPUT_CSV", "output/csv")
-    cfg["EXPORT_JSON_DATA"] = os.getenv("EXPORT_JSON_DATA", "false")
-    cfg["OUTPUT_JSON_DATA"] = os.getenv("OUTPUT_JSON_DATA", "output/json_data")
+    cfg["SCAN_JSON"] = os.getenv("SCAN_JSON", "false")
     return cfg
 
 
@@ -257,8 +253,6 @@ def save_config(values: dict, env_path: Path) -> None:
         "",
         "# --- Pfade ---",
         f"WATCH_FOLDER={v('WATCH_FOLDER')}",
-        f"OUTPUT_XML={v('OUTPUT_XML', 'output/xml')}",
-        f"OUTPUT_PDF={v('OUTPUT_PDF', 'output/pdf')}",
         f"PROCESSED_FOLDER={v('PROCESSED_FOLDER', 'processed')}",
         f"ERROR_FOLDER={v('ERROR_FOLDER', 'error')}",
         "",
@@ -280,12 +274,8 @@ def save_config(values: dict, env_path: Path) -> None:
         f"LOG_MAX_BYTES={v('LOG_MAX_BYTES', '5242880')}",
         f"LOG_BACKUP_COUNT={v('LOG_BACKUP_COUNT', '3')}",
         "",
-        "# --- Monitor-Einstellungen ---",
+        "# --- Scan-Einstellungen ---",
         f"SCAN_JSON={v('SCAN_JSON', 'false')}",
-        f"EXPORT_CSV={v('EXPORT_CSV', 'false')}",
-        f"OUTPUT_CSV={v('OUTPUT_CSV', 'output/csv')}",
-        f"EXPORT_JSON_DATA={v('EXPORT_JSON_DATA', 'false')}",
-        f"OUTPUT_JSON_DATA={v('OUTPUT_JSON_DATA', 'output/json_data')}",
         "",
         "# --- Verkäuferdaten (Fallback wenn Datenbanktabelle fehlt) ---",
         f"SELLER_NAME={v('SELLER_NAME')}",
@@ -305,81 +295,69 @@ def save_config(values: dict, env_path: Path) -> None:
 # Zusätzliche Exporte
 # ---------------------------------------------------------------------------
 
-def _export_csv(invoice_data: dict, output_dir: str) -> None:
-    log = logging.getLogger("xrechnung.monitor")
-    try:
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        nr = invoice_data.get("invoice_number", "rechnung")
-        path = out / f"{nr}.csv"
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.writer(f, delimiter=";")
-            w.writerow(["Rechnungsnummer", nr])
-            w.writerow(["Datum",           str(invoice_data.get("invoice_date", ""))])
-            w.writerow(["Fälligkeitsdatum",str(invoice_data.get("due_date", ""))])
-            w.writerow(["Käufer",          invoice_data.get("buyer_name", "")])
-            w.writerow(["Verkäufer",       invoice_data.get("seller_name", "")])
-            w.writerow([])
-            w.writerow(["Pos.", "Artikel-Nr.", "Bezeichnung", "Menge",
-                        "Einzelpreis (netto)", "MwSt. %", "Gesamt (netto)"])
-            for item in invoice_data.get("items", []):
-                w.writerow([
-                    item.get("position_no", ""),
-                    item.get("item_code", ""),
-                    item.get("description", ""),
-                    item.get("quantity", ""),
-                    item.get("unit_price_net", ""),
-                    item.get("tax_rate", ""),
-                    item.get("line_total_net", ""),
-                ])
-        log.info("CSV exportiert: %s", path.name)
-    except Exception as e:
-        log.error("CSV-Export fehlgeschlagen: %s", e)
-
-
-def _export_json_data(invoice_data: dict, output_dir: str) -> None:
-    log = logging.getLogger("xrechnung.monitor")
-    try:
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        nr = invoice_data.get("invoice_number", "rechnung")
-        path = out / f"{nr}_data.json"
-
-        def _default(obj):
-            import decimal, datetime
-            if isinstance(obj, decimal.Decimal):
-                return str(obj)
-            if isinstance(obj, (datetime.date, datetime.datetime)):
-                return obj.isoformat()
-            return str(obj)
-
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(invoice_data, f, ensure_ascii=False, indent=2, default=_default)
-        log.info("JSON exportiert: %s", path.name)
-    except Exception as e:
-        log.error("JSON-Export fehlgeschlagen: %s", e)
-
-
 # ---------------------------------------------------------------------------
-# Verarbeitungs-Pipeline (erweitert: PDF + JSON, zusätzliche Ausgaben)
+# Verarbeitungs-Pipeline
 # ---------------------------------------------------------------------------
 
-def _move_to_processed(file_path: Path, config: dict) -> None:
-    dest = Path(config["PROCESSED_FOLDER"]) / file_path.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.move(str(file_path), str(dest))
-    except Exception as e:
-        logging.getLogger("xrechnung.monitor").warning("Verschieben fehlgeschlagen: %s", e)
+def _move_to_processed(
+    file_path: Path,
+    config: dict,
+    companion_json: Optional[Path] = None,
+) -> None:
+    """Verschiebt alle Dateien einer erfolgreich verarbeiteten Rechnung in einen Unterordner."""
+    folder_name   = file_path.stem
+    processed_dir = Path(config["PROCESSED_FOLDER"]) / folder_name
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    log = logging.getLogger("xrechnung.monitor")
+    for src in [file_path, companion_json]:
+        if src and src.exists():
+            try:
+                shutil.move(str(src), str(processed_dir / src.name))
+            except Exception as e:
+                log.warning("Verschieben (processed) fehlgeschlagen (%s): %s", src.name, e)
+    log.debug("→ processed/%s/: %s", folder_name, file_path.name)
 
 
-def _move_to_error(file_path: Path, config: dict) -> None:
-    dest = Path(config["ERROR_FOLDER"]) / file_path.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _move_to_error(
+    file_path: Path,
+    config: dict,
+    reason: str = "",
+    companion_json: Optional[Path] = None,
+) -> None:
+    """Verschiebt fehlgeschlagene Rechnung in einen Unterordner und erstellt Fehlerprotokoll."""
+    from datetime import datetime
+    timestamp   = datetime.now()
+    ts_str      = timestamp.strftime("%Y%m%d_%H%M%S")
+    error_dir   = Path(config["ERROR_FOLDER"]) / f"{ts_str}_{file_path.stem}"
+    error_dir.mkdir(parents=True, exist_ok=True)
+    log = logging.getLogger("xrechnung.monitor")
+    for src in [file_path, companion_json]:
+        if src and src.exists():
+            try:
+                shutil.move(str(src), str(error_dir / src.name))
+            except Exception as e:
+                log.warning("Verschieben (error) fehlgeschlagen (%s): %s", src.name, e)
+    # Fehlerprotokoll
+    report_lines = [
+        "XRechnung-Monitor – Fehlerprotokoll",
+        "=" * 52,
+        f"Zeitstempel:  {timestamp.strftime('%d.%m.%Y %H:%M:%S')}",
+        f"Quelldatei:   {file_path.name}",
+    ]
+    if companion_json:
+        report_lines.append(f"Begleit-JSON: {companion_json.name}")
+    report_lines += [
+        "",
+        "Fehlerursache:",
+        "-" * 52,
+        reason if reason else "(kein Fehlergrund übermittelt)",
+        "=" * 52,
+    ]
     try:
-        shutil.move(str(file_path), str(dest))
+        (error_dir / "error_report.txt").write_text("\n".join(report_lines), encoding="utf-8")
     except Exception as e:
-        logging.getLogger("xrechnung.monitor").warning("Verschieben (error) fehlgeschlagen: %s", e)
+        log.warning("Fehlerprotokoll konnte nicht erstellt werden: %s", e)
+    log.warning("→ error/%s_%s/: %s", ts_str, file_path.stem, file_path.name)
 
 
 def _apply_seller_fallback(
@@ -549,7 +527,9 @@ def process_file(
 
     if not invoice_number:
         log.error("Rechnungsnummer nicht gefunden: %s", file_path.name)
-        _move_to_error(file_path, config)
+        _move_to_error(file_path, config,
+            reason="Rechnungsnummer konnte nicht aus der Datei extrahiert werden.",
+            companion_json=companion_json)
         return False
 
     log.info("Rechnungsnummer: %s", invoice_number)
@@ -595,7 +575,9 @@ def process_file(
 
     if not invoice_data:
         log.error("Keine Rechnungsdaten für %s", invoice_number)
-        _move_to_error(file_path, config)
+        _move_to_error(file_path, config,
+            reason=f"Keine Rechnungsdaten in der Datenbank für: {invoice_number}",
+            companion_json=companion_json)
         return False
 
     # ── Schritt 2b: Verkäuferdaten-Fallback ────────────────────────────────
@@ -604,14 +586,18 @@ def process_file(
     # ── Schritt 3: XML erzeugen ─────────────────────────────────────────────
     try:
         from src.xrechnung.generator import generate
-        xml_path = generate(invoice_data, Path(config["OUTPUT_XML"]))
+        xml_out_dir = Path(config["PROCESSED_FOLDER"]) / file_path.stem
+        xml_out_dir.mkdir(parents=True, exist_ok=True)
+        xml_path = generate(invoice_data, xml_out_dir)
     except Exception as e:
         log.error("XML-Generierung fehlgeschlagen: %s", e)
         xml_path = None
 
     if not xml_path:
         log.error("XML-Generierung fehlgeschlagen: %s", invoice_number)
-        _move_to_error(file_path, config)
+        _move_to_error(file_path, config,
+            reason=f"XML konnte nicht erzeugt werden ({invoice_number}).",
+            companion_json=companion_json)
         return False
 
     log.info("XML erzeugt: %s", xml_path.name)
@@ -626,26 +612,12 @@ def process_file(
 
     if not valid:
         log.error("XML-Validierung fehlgeschlagen: %s", xml_path.name)
-        _move_to_error(file_path, config)
+        _move_to_error(file_path, config,
+            reason=f"XSD-Validierung fehlgeschlagen: {xml_path.name}",
+            companion_json=companion_json)
         return False
 
     log.info("XML-Validierung erfolgreich")
-
-    # ── Schritt 4b: Zusatzexporte ───────────────────────────────────────────
-    if options.get("export_csv") and config.get("OUTPUT_CSV"):
-        _export_csv(invoice_data, config["OUTPUT_CSV"])
-
-    if options.get("export_json_data") and config.get("OUTPUT_JSON_DATA"):
-        _export_json_data(invoice_data, config["OUTPUT_JSON_DATA"])
-
-    if options.get("archive_pdf") and file_path.suffix.lower() == ".pdf":
-        try:
-            arch = Path(config.get("OUTPUT_PDF", "output/pdf"))
-            arch.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(file_path), str(arch / file_path.name))
-            log.info("PDF archiviert: %s", file_path.name)
-        except Exception as e:
-            log.warning("PDF-Archivierung fehlgeschlagen: %s", e)
 
     # ── Schritt 5: Übertragen ───────────────────────────────────────────────
     if dry_run:
@@ -655,16 +627,20 @@ def process_file(
             from src.transmitter.transmitter import transmit
             if not transmit(xml_path, config):
                 log.error("Übertragung fehlgeschlagen: %s", xml_path.name)
-                _move_to_error(file_path, config)
+                _move_to_error(file_path, config,
+                    reason=f"E-Mail-Versand fehlgeschlagen: {xml_path.name}",
+                    companion_json=companion_json)
                 return False
         except Exception as e:
             log.error("Übertragung fehlgeschlagen: %s", e)
-            _move_to_error(file_path, config)
+            _move_to_error(file_path, config,
+                reason=f"E-Mail-Versand fehlgeschlagen (Exception): {e}",
+                companion_json=companion_json)
             return False
         log.info("Übertragung erfolgreich")
 
-    # ── Schritt 6: Quelldatei verschieben ───────────────────────────────────
-    _move_to_processed(file_path, config)
+    # ── Schritt 6: Quelldatei(en) in processed/ verschieben ─────────────────
+    _move_to_processed(file_path, config, companion_json=companion_json)
     log.info("Abgeschlossen: %s", file_path.name)
     return True
 
@@ -988,8 +964,6 @@ class SettingsTab(QWidget):
             return e
 
         self.watch_folder     = mk_edit("Eingangsordner für PDF/JSON-Dateien")
-        self.output_xml       = mk_edit("output/xml")
-        self.output_pdf       = mk_edit("output/pdf")
         self.processed_folder = mk_edit("processed")
         self.error_folder     = mk_edit("error")
         self.log_file         = mk_edit("logs/xrechnung_dienst.log")
@@ -1002,8 +976,6 @@ class SettingsTab(QWidget):
                 edit.setText(folder)
 
         paths_form.addRow("Eingangsordner:", _folder_row(self.watch_folder, browse))
-        paths_form.addRow("XML-Ausgabe:", _folder_row(self.output_xml, browse))
-        paths_form.addRow("PDF-Archiv:", _folder_row(self.output_pdf, browse))
         paths_form.addRow("Verarbeitet:", _folder_row(self.processed_folder, browse))
         paths_form.addRow("Fehler:", _folder_row(self.error_folder, browse))
         paths_form.addRow("Protokolldatei:", _folder_row(self.log_file, browse))
@@ -1165,8 +1137,6 @@ class SettingsTab(QWidget):
         self.ozg_email.setText(cfg.get("OZG_RE_EMAIL", ""))
         self.ozg_subject.setText(cfg.get("OZG_RE_SUBJECT", "XRechnung Einreichung"))
         self.watch_folder.setText(cfg.get("WATCH_FOLDER", ""))
-        self.output_xml.setText(cfg.get("OUTPUT_XML", "output/xml"))
-        self.output_pdf.setText(cfg.get("OUTPUT_PDF", "output/pdf"))
         self.processed_folder.setText(cfg.get("PROCESSED_FOLDER", "processed"))
         self.error_folder.setText(cfg.get("ERROR_FOLDER", "error"))
         self.log_file.setText(cfg.get("LOG_FILE", "logs/xrechnung_dienst.log"))
@@ -1198,8 +1168,6 @@ class SettingsTab(QWidget):
             "OZG_RE_EMAIL":     self.ozg_email.text().strip(),
             "OZG_RE_SUBJECT":   self.ozg_subject.text().strip() or "XRechnung Einreichung",
             "WATCH_FOLDER":     self.watch_folder.text().strip(),
-            "OUTPUT_XML":       self.output_xml.text().strip() or "output/xml",
-            "OUTPUT_PDF":       self.output_pdf.text().strip() or "output/pdf",
             "PROCESSED_FOLDER": self.processed_folder.text().strip() or "processed",
             "ERROR_FOLDER":     self.error_folder.text().strip() or "error",
             "LOG_FILE":         self.log_file.text().strip() or "logs/xrechnung_dienst.log",
@@ -1220,7 +1188,7 @@ class SettingsTab(QWidget):
 
 
 # ---------------------------------------------------------------------------
-# Ausgabedateien-Tab
+# Ausgabedateien-Tab  (nur noch Scan-Einstellungen)
 # ---------------------------------------------------------------------------
 
 class OutputFilesTab(QWidget):
@@ -1230,12 +1198,13 @@ class OutputFilesTab(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
 
-        title = QLabel("Ausgabedateien & Scan-Einstellungen")
+        title = QLabel("Scan-Einstellungen")
         title.setObjectName("title")
         root.addWidget(title)
 
         subtitle = QLabel(
-            "Legen Sie fest, welche Dateiformate gescannt und welche Ausgabedateien erzeugt werden."
+            "Legen Sie fest, welche Dateiformate aus dem Eingangsordner verarbeitet werden.\n"
+            "Alle erzeugten Dateien (XML, PDF, JSON) werden automatisch in den Verarbeitet-Ordner abgelegt."
         )
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
@@ -1268,130 +1237,42 @@ class OutputFilesTab(QWidget):
         scan_layout.addWidget(json_hint)
         root.addWidget(scan_grp)
 
-        # ── Ausgabedateien ─────────────────────────────────────────────────
-        out_grp = QGroupBox("Ausgabedateien")
+        # ── Hinweis Ausgabe ────────────────────────────────────────────────
+        out_grp = QGroupBox("Ausgabe")
         out_layout = QVBoxLayout(out_grp)
-        out_layout.setSpacing(8)
+        out_layout.setSpacing(6)
 
-        # XML — immer
-        xml_row = QHBoxLayout()
-        chk_xml = QCheckBox("XRechnung-XML erzeugen (*.xml)  — immer aktiv")
-        chk_xml.setChecked(True)
-        chk_xml.setEnabled(False)
-        xml_row.addWidget(chk_xml)
-        out_layout.addLayout(xml_row)
-
-        out_layout.addWidget(_hline())
-
-        # PDF-Archivkopie
-        self.chk_pdf_archive = QCheckBox("PDF-Kopie im Archivordner ablegen")
-        out_layout.addWidget(self.chk_pdf_archive)
-
-        pdf_note = QLabel("(Zielordner: 'PDF-Archiv' aus Einstellungen)")
-        pdf_note.setStyleSheet("color: #888888; font-size: 9pt; padding-left: 28px;")
-        out_layout.addWidget(pdf_note)
-
-        out_layout.addWidget(_hline())
-
-        # CSV-Export
-        self.chk_csv = QCheckBox("CSV-Export  (Rechnungsdaten als Tabelle, *.csv)")
-        out_layout.addWidget(self.chk_csv)
-
-        csv_path_row = QHBoxLayout()
-        csv_path_row.setContentsMargins(28, 0, 0, 0)
-        lbl_csv = QLabel("Ausgabeordner:")
-        lbl_csv.setFixedWidth(120)
-        self.csv_folder = QLineEdit("output/csv")
-        self.btn_csv = QPushButton("…")
-        self.btn_csv.setFixedWidth(36)
-
-        def browse_csv():
-            d = QFileDialog.getExistingDirectory(self, "Ordner", self.csv_folder.text())
-            if d:
-                self.csv_folder.setText(d)
-
-        self.btn_csv.clicked.connect(browse_csv)
-        csv_path_row.addWidget(lbl_csv)
-        csv_path_row.addWidget(self.csv_folder)
-        csv_path_row.addWidget(self.btn_csv)
-        out_layout.addLayout(csv_path_row)
-
-        out_layout.addWidget(_hline())
-
-        # JSON-Daten-Export
-        self.chk_json_data = QCheckBox("JSON-Export  (Rechnungsdaten als JSON-Datei, *_data.json)")
-        out_layout.addWidget(self.chk_json_data)
-
-        json_path_row = QHBoxLayout()
-        json_path_row.setContentsMargins(28, 0, 0, 0)
-        lbl_json = QLabel("Ausgabeordner:")
-        lbl_json.setFixedWidth(120)
-        self.json_data_folder = QLineEdit("output/json_data")
-        self.btn_json = QPushButton("…")
-        self.btn_json.setFixedWidth(36)
-
-        def browse_json():
-            d = QFileDialog.getExistingDirectory(self, "Ordner", self.json_data_folder.text())
-            if d:
-                self.json_data_folder.setText(d)
-
-        self.btn_json.clicked.connect(browse_json)
-        json_path_row.addWidget(lbl_json)
-        json_path_row.addWidget(self.json_data_folder)
-        json_path_row.addWidget(self.btn_json)
-        out_layout.addLayout(json_path_row)
-
+        out_info = QLabel(
+            "Alle zu einer Rechnung gehörenden Dateien werden nach erfolgreicher Verarbeitung\n"
+            "automatisch in einen eigenen Unterordner im Verarbeitet-Ordner abgelegt:\n\n"
+            "  verarbeitet/<rechnungsnummer>/\n"
+            "    <rechnungsnummer>.pdf\n"
+            "    <rechnungsnummer>.json   (falls vorhanden)\n"
+            "    <rechnungsnummer>.xml\n\n"
+            "Fehlgeschlagene Rechnungen landen mit Fehlerprotokoll unter Fehler/<timestamp_name>/."
+        )
+        out_info.setStyleSheet(
+            "color: #555555; font-size: 10pt; padding: 4px;"
+            "font-family: 'Courier New', monospace;"
+        )
+        out_info.setWordWrap(True)
+        out_layout.addWidget(out_info)
         root.addWidget(out_grp)
+
         root.addStretch()
 
-        # Aktivierung der Pfad-Felder je nach Checkbox-Status
-        def _toggle_csv(checked: bool):
-            self.csv_folder.setEnabled(checked)
-            self.btn_csv.setEnabled(checked)
-
-        def _toggle_json(checked: bool):
-            self.json_data_folder.setEnabled(checked)
-            self.btn_json.setEnabled(checked)
-
-        self.chk_csv.toggled.connect(_toggle_csv)
-        self.chk_json_data.toggled.connect(_toggle_json)
-        _toggle_csv(False)
-        _toggle_json(False)
-
     def load_from_config(self, cfg: dict) -> None:
-        def _bool(key):
-            return str(cfg.get(key, "false")).lower() == "true"
-
-        scan_json = _bool("SCAN_JSON")
+        scan_json = str(cfg.get("SCAN_JSON", "false")).lower() == "true"
         self.chk_scan_json.setChecked(scan_json)
-
-        exp_csv = _bool("EXPORT_CSV")
-        self.chk_csv.setChecked(exp_csv)
-        self.csv_folder.setText(cfg.get("OUTPUT_CSV", "output/csv"))
-        self.csv_folder.setEnabled(exp_csv)
-        self.btn_csv.setEnabled(exp_csv)
-
-        exp_json = _bool("EXPORT_JSON_DATA")
-        self.chk_json_data.setChecked(exp_json)
-        self.json_data_folder.setText(cfg.get("OUTPUT_JSON_DATA", "output/json_data"))
-        self.json_data_folder.setEnabled(exp_json)
-        self.btn_json.setEnabled(exp_json)
 
     def get_options(self) -> dict:
         return {
-            "scan_json":       self.chk_scan_json.isChecked(),
-            "archive_pdf":     self.chk_pdf_archive.isChecked(),
-            "export_csv":      self.chk_csv.isChecked(),
-            "export_json_data":self.chk_json_data.isChecked(),
+            "scan_json": self.chk_scan_json.isChecked(),
         }
 
     def get_extra_config(self) -> dict:
         return {
-            "SCAN_JSON":        str(self.chk_scan_json.isChecked()).lower(),
-            "EXPORT_CSV":       str(self.chk_csv.isChecked()).lower(),
-            "OUTPUT_CSV":       self.csv_folder.text().strip() or "output/csv",
-            "EXPORT_JSON_DATA": str(self.chk_json_data.isChecked()).lower(),
-            "OUTPUT_JSON_DATA": self.json_data_folder.text().strip() or "output/json_data",
+            "SCAN_JSON": str(self.chk_scan_json.isChecked()).lower(),
         }
 
 

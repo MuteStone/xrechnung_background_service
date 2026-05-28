@@ -54,8 +54,6 @@ def write_env(values: dict, path: Path) -> None:
         "",
         "# --- Pfade ---",
         f"WATCH_FOLDER={v('WATCH_FOLDER')}",
-        f"OUTPUT_XML={v('OUTPUT_XML', 'output/xml')}",
-        f"OUTPUT_PDF={v('OUTPUT_PDF', 'output/pdf')}",
         f"PROCESSED_FOLDER={v('PROCESSED_FOLDER', 'processed')}",
         f"ERROR_FOLDER={v('ERROR_FOLDER', 'error')}",
         "",
@@ -71,13 +69,8 @@ def write_env(values: dict, path: Path) -> None:
         f"OZG_RE_EMAIL={v('OZG_RE_EMAIL')}",
         f"OZG_RE_SUBJECT={v('OZG_RE_SUBJECT', 'XRechnung Einreichung')}",
         "",
-        "# --- Scan & Ausgabe ---",
+        "# --- Scan-Einstellungen ---",
         f"SCAN_JSON={v('SCAN_JSON', 'false')}",
-        f"ARCHIVE_PDF={v('ARCHIVE_PDF', 'false')}",
-        f"EXPORT_CSV={v('EXPORT_CSV', 'false')}",
-        f"OUTPUT_CSV={v('OUTPUT_CSV', 'output/csv')}",
-        f"EXPORT_JSON_DATA={v('EXPORT_JSON_DATA', 'false')}",
-        f"OUTPUT_JSON_DATA={v('OUTPUT_JSON_DATA', 'output/json_data')}",
         "",
         "# --- Verkäuferdaten (Fallback wenn Datenbanktabelle fehlt) ---",
         f"SELLER_NAME={v('SELLER_NAME')}",
@@ -103,8 +96,6 @@ def create_folders(base: Path, values: dict) -> list[str]:
     """Legt alle benötigten Ordner an. Gibt Liste der erstellten Ordner zurück."""
     created = []
     folders = [
-        Path(values["OUTPUT_XML"]),
-        Path(values["OUTPUT_PDF"]),
         Path(values["PROCESSED_FOLDER"]),
         Path(values["ERROR_FOLDER"]),
         Path(values["LOG_FILE"]).parent,
@@ -474,17 +465,13 @@ class PageFolders(QWizardPage):
 
         row_install, self.install_dir = folder_row(_default_install, "z. B. C:/Programme/XRechnung")
         row_watch,   self.watch       = folder_row("", "Exportordner der Kundenverwaltung")
-        row_xml,     self.xml         = folder_row(str(_data / "output" / "xml"))
-        row_pdf,     self.pdf         = folder_row(str(_data / "output" / "pdf"))
         row_proc,    self.proc        = folder_row(str(_data / "processed"))
         row_err,     self.err         = folder_row(str(_data / "error"))
         row_log,     self.log         = folder_row(str(_data / "logs" / "xrechnung_dienst.log"))
 
         form.addRow("Installationsordner:", row_install)
         form.addRow("Überwachungsordner (PDF-Eingang):", row_watch)
-        form.addRow("XML-Ausgabeordner:", row_xml)
-        form.addRow("PDF-Archivordner:", row_pdf)
-        form.addRow("Ordner für verarbeitete PDFs:", row_proc)
+        form.addRow("Verarbeitet-Ordner:", row_proc)
         form.addRow("Fehlerordner:", row_err)
         form.addRow("Protokolldatei:", row_log)
         layout.addLayout(form)
@@ -492,8 +479,6 @@ class PageFolders(QWizardPage):
 
         self.registerField("INSTALL_DIR*",     self.install_dir)
         self.registerField("WATCH_FOLDER*",    self.watch)
-        self.registerField("OUTPUT_XML",       self.xml)
-        self.registerField("OUTPUT_PDF",       self.pdf)
         self.registerField("PROCESSED_FOLDER", self.proc)
         self.registerField("ERROR_FOLDER",     self.err)
         self.registerField("LOG_FILE",         self.log)
@@ -506,8 +491,6 @@ class PageFolders(QWizardPage):
         if not text.strip():
             return
         data = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "XRechnung"
-        self.xml.setText(str(data / "output" / "xml"))
-        self.pdf.setText(str(data / "output" / "pdf"))
         self.proc.setText(str(data / "processed"))
         self.err.setText(str(data / "error"))
         self.log.setText(str(data / "logs" / "xrechnung_dienst.log"))
@@ -555,53 +538,8 @@ class PageScanAndSeller(QWizardPage):
         scan_layout = QVBoxLayout(scan_grp)
         scan_layout.setSpacing(6)
 
-        self.chk_scan_json   = QCheckBox("JSON-Dateien scannen (*.json) — zusätzlich zu PDF")
-        self.chk_archive_pdf = QCheckBox("PDF-Archivkopie in OUTPUT_PDF ablegen")
-        self.chk_export_csv  = QCheckBox("CSV-Export erzeugen  (*.csv)")
-        self.chk_export_json = QCheckBox("JSON-Datenexport erzeugen  (*_data.json)")
-
+        self.chk_scan_json = QCheckBox("JSON-Dateien scannen (*.json) — zusätzlich zu PDF")
         scan_layout.addWidget(self.chk_scan_json)
-        scan_layout.addWidget(self.chk_archive_pdf)
-        scan_layout.addWidget(self.chk_export_csv)
-
-        csv_row = QHBoxLayout()
-        csv_row.setContentsMargins(28, 0, 0, 0)
-        lbl_csv      = QLabel("CSV-Ordner:")
-        lbl_csv.setFixedWidth(100)
-        _data_base   = Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "XRechnung"
-        self.csv_dir = QLineEdit(str(_data_base / "output" / "csv"))
-        btn_csv      = QPushButton("…")
-        btn_csv.setFixedWidth(36)
-        btn_csv.clicked.connect(lambda: self._browse(self.csv_dir))
-        csv_row.addWidget(lbl_csv)
-        csv_row.addWidget(self.csv_dir)
-        csv_row.addWidget(btn_csv)
-        scan_layout.addLayout(csv_row)
-
-        scan_layout.addWidget(self.chk_export_json)
-
-        json_row = QHBoxLayout()
-        json_row.setContentsMargins(28, 0, 0, 0)
-        lbl_json       = QLabel("JSON-Ordner:")
-        lbl_json.setFixedWidth(100)
-        self.json_dir  = QLineEdit(str(_data_base / "output" / "json_data"))
-        btn_json       = QPushButton("…")
-        btn_json.setFixedWidth(36)
-        btn_json.clicked.connect(lambda: self._browse(self.json_dir))
-        json_row.addWidget(lbl_json)
-        json_row.addWidget(self.json_dir)
-        json_row.addWidget(btn_json)
-        scan_layout.addLayout(json_row)
-
-        # Pfad-Felder nur aktivieren wenn Checkbox gesetzt
-        self.chk_export_csv.toggled.connect(self.csv_dir.setEnabled)
-        self.chk_export_csv.toggled.connect(btn_csv.setEnabled)
-        self.chk_export_json.toggled.connect(self.json_dir.setEnabled)
-        self.chk_export_json.toggled.connect(btn_json.setEnabled)
-        self.csv_dir.setEnabled(False)
-        btn_csv.setEnabled(False)
-        self.json_dir.setEnabled(False)
-        btn_json.setEnabled(False)
 
         layout.addWidget(scan_grp)
 
@@ -657,12 +595,7 @@ class PageScanAndSeller(QWizardPage):
         outer.addWidget(scroll)
 
         # Felder registrieren
-        self.registerField("SCAN_JSON",        self.chk_scan_json,   "checked", self.chk_scan_json.toggled)
-        self.registerField("ARCHIVE_PDF",       self.chk_archive_pdf, "checked", self.chk_archive_pdf.toggled)
-        self.registerField("EXPORT_CSV",        self.chk_export_csv,  "checked", self.chk_export_csv.toggled)
-        self.registerField("OUTPUT_CSV",        self.csv_dir)
-        self.registerField("EXPORT_JSON_DATA",  self.chk_export_json, "checked", self.chk_export_json.toggled)
-        self.registerField("OUTPUT_JSON_DATA",  self.json_dir)
+        self.registerField("SCAN_JSON", self.chk_scan_json, "checked", self.chk_scan_json.toggled)
         self.registerField("SELLER_NAME",       self.seller_name)
         self.registerField("SELLER_STREET",     self.seller_street)
         self.registerField("SELLER_ZIP",        self.seller_zip)
@@ -796,13 +729,11 @@ class PageFinish(QWizardPage):
             f"Absender:        {w.field('SMTP_FROM')}",
             f"OZG-RE Empf.:    {w.field('OZG_RE_EMAIL')}",
             f"Überwachung:     {w.field('WATCH_FOLDER')}",
-            f"XML-Ausgabe:     {w.field('OUTPUT_XML')}",
+            f"Verarbeitet:     {w.field('PROCESSED_FOLDER')}",
+            f"Fehler:          {w.field('ERROR_FOLDER')}",
             f"Protokoll:       {w.field('LOG_FILE')}",
             "",
             f"JSON scannen:    {_yn('SCAN_JSON')}",
-            f"PDF archivieren: {_yn('ARCHIVE_PDF')}",
-            f"CSV-Export:      {_yn('EXPORT_CSV')}",
-            f"JSON-Export:     {_yn('EXPORT_JSON_DATA')}",
             f"Verkäufer:       {w.field('SELLER_NAME') or '(nicht gesetzt)'}",
             "",
             "Klicken Sie auf 'Übernehmen' um die Konfiguration zu speichern.",
@@ -828,8 +759,6 @@ class PageFinish(QWizardPage):
             "DB_USER":          w.field("DB_USER"),
             "DB_PASSWORD":      w.field("DB_PASSWORD"),
             "WATCH_FOLDER":     w.field("WATCH_FOLDER"),
-            "OUTPUT_XML":       w.field("OUTPUT_XML"),
-            "OUTPUT_PDF":       w.field("OUTPUT_PDF"),
             "PROCESSED_FOLDER": w.field("PROCESSED_FOLDER"),
             "ERROR_FOLDER":     w.field("ERROR_FOLDER"),
             "SMTP_HOST":        w.field("SMTP_HOST"),
@@ -841,11 +770,6 @@ class PageFinish(QWizardPage):
             "OZG_RE_EMAIL":     w.field("OZG_RE_EMAIL"),
             "OZG_RE_SUBJECT":   w.field("OZG_RE_SUBJECT"),
             "SCAN_JSON":        _bool_str("SCAN_JSON"),
-            "ARCHIVE_PDF":      _bool_str("ARCHIVE_PDF"),
-            "EXPORT_CSV":       _bool_str("EXPORT_CSV"),
-            "OUTPUT_CSV":       w.field("OUTPUT_CSV") or str(Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "XRechnung" / "output" / "csv"),
-            "EXPORT_JSON_DATA": _bool_str("EXPORT_JSON_DATA"),
-            "OUTPUT_JSON_DATA": w.field("OUTPUT_JSON_DATA") or str(Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "XRechnung" / "output" / "json_data"),
             "SELLER_NAME":      w.field("SELLER_NAME"),
             "SELLER_STREET":    w.field("SELLER_STREET"),
             "SELLER_ZIP":       w.field("SELLER_ZIP"),
