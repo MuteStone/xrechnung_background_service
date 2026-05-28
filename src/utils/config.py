@@ -47,7 +47,7 @@ def load_config() -> dict:
         # OZG-RE
         "OZG_RE_EMAIL":   os.getenv("OZG_RE_EMAIL", "poststelle@bdr-portal.de"),
         "OZG_RE_SUBJECT": os.getenv("OZG_RE_SUBJECT", "XRechnung Einreichung"),
-        # Verkäuferdaten (Fallback wenn seller_profiles und alternative Tabellen fehlen)
+        # Verkäuferdaten (Fallback wenn PDF keine Verkäuferdaten enthält)
         "SELLER_NAME":    os.getenv("SELLER_NAME", ""),
         "SELLER_STREET":  os.getenv("SELLER_STREET", ""),
         "SELLER_ZIP":     os.getenv("SELLER_ZIP", ""),

@@ -177,7 +177,7 @@ def _write_error_report(
 def _apply_seller_fallback(invoice_data: dict, file_path: Path, config: dict) -> None:
     """
     Ergänzt fehlende Verkäuferdaten in invoice_data.
-    Fallback-Kette: DB-Daten vorhanden → PDF-Extraktion → SELLER_*-Werte aus .env
+    Fallback-Kette: PDF-Extraktion → SELLER_*-Werte aus .env
     """
     if invoice_data.get("seller_name"):
         return
@@ -247,23 +247,26 @@ def process_file(
     """
     logger.info("Verarbeite: %s", file_path.name)
 
-    # Schritt 1: Rechnungsnummer extrahieren
+    is_pdf  = file_path.suffix.lower() == ".pdf"
+    is_json = file_path.suffix.lower() == ".json"
+
+    # ── Schritt 1: Rechnungsnummer extrahieren ────────────────────────────
+    # Primär aus PDF (immer vorhanden), Fallback aus JSON bei Standalone-JSON.
+    invoice_number         = None
     invoice_data_from_json = None
 
-    if file_path.suffix.lower() == ".json":
+    if is_pdf:
+        try:
+            from src.xrechnung.pdf_reader import extract_invoice_number
+            invoice_number = extract_invoice_number(file_path)
+        except Exception as e:
+            logger.error("PDF-Lesefehler (Rechnungsnummer): %s", e)
+    elif is_json:
         try:
             from src.xrechnung.json_reader import extract_from_json
             invoice_number, invoice_data_from_json = extract_from_json(file_path)
         except Exception as e:
             logger.error("JSON-Lesefehler: %s", e)
-            invoice_number = None
-    else:
-        try:
-            from src.xrechnung.pdf_reader import extract_invoice_number
-            invoice_number = extract_invoice_number(file_path)
-        except Exception as e:
-            logger.error("PDF-Lesefehler: %s", e)
-            invoice_number = None
 
     if not invoice_number:
         logger.error("Rechnungsnummer nicht gefunden: %s", file_path.name)
@@ -276,76 +279,154 @@ def process_file(
 
     logger.info("Rechnungsnummer: %s", invoice_number)
 
-    # Schritt 2: Rechnungsdaten laden
-    if invoice_data_from_json and invoice_data_from_json.get("items"):
-        # Standalone JSON-Eingabe (kein PDF-Begleiter)
-        invoice_data = invoice_data_from_json
-        logger.info("Rechnungsdaten aus JSON-Datei übernommen")
-    elif companion_json:
-        # Gepaarter Modus: JSON liefert Positionen, DB ergänzt fehlende Felder
-        json_companion_data = None
+    # ── Schritt 2: Daten zusammenführen (PDF → JSON → DB) ─────────────────
+    #
+    # Priorität:
+    #   1. PDF  → Empfängeradresse (buyer_*) aus Adressblock oben
+    #             Lizenznehmer-Kundennummer aus "Lizenznehmer:"-Zeile
+    #             Leistungsdatum aus Abrechnungszeitraum
+    #   2. JSON → Leitweg-ID aus custom3 (überschreibt DB-Wert)
+    #             dokumenteid aus custom4 (für direkten DB-Positions-Lookup)
+    #             buyer_* aus addressLines (überschreibt PDF falls gesetzt)
+    #   3. DB   → Rechnungskopf, Positionen, Verkäuferdaten
+    #             Leitweg-ID via Lizenznehmer-kundenid (falls nicht aus JSON)
+
+    invoice_data: Optional[dict] = {}
+
+    # ── 2a: PDF auslesen ──────────────────────────────────────────────────
+    if is_pdf:
+        try:
+            from src.xrechnung.pdf_reader import (
+                extract_buyer_address,
+                extract_lizenznehmer_id,
+                extract_service_start_date,
+            )
+            pdf_buyer = extract_buyer_address(file_path)
+            if pdf_buyer:
+                invoice_data.update(pdf_buyer)
+                logger.info(
+                    "Empfängeradresse aus PDF: %s", pdf_buyer.get("buyer_name", "?")
+                )
+
+            lizenznehmer_id = extract_lizenznehmer_id(file_path)
+            if lizenznehmer_id:
+                invoice_data["_lizenznehmer_id"] = lizenznehmer_id
+                logger.debug("Lizenznehmer-ID aus PDF: %s", lizenznehmer_id)
+
+            pdf_service_start = extract_service_start_date(file_path)
+            if pdf_service_start:
+                invoice_data["service_start"] = pdf_service_start
+                logger.debug("Leistungsbeginn aus PDF: %s", pdf_service_start)
+
+        except Exception as e:
+            logger.warning("PDF-Extraktion (Adresse/Lizenznehmer) fehlgeschlagen: %s", e)
+
+    # ── 2b: JSON auslesen (companion oder Standalone) ─────────────────────
+    json_data    = None
+    dokumenteid  = None
+
+    epost_json_path = companion_json if companion_json else (file_path if is_json else None)
+    if epost_json_path:
         try:
             from src.xrechnung.json_reader import extract_from_json
-            _, json_companion_data = extract_from_json(companion_json)
+            _, json_data = extract_from_json(epost_json_path)
         except Exception as e:
-            logger.warning("Begleit-JSON nicht lesbar: %s", e)
+            logger.warning("JSON nicht lesbar (%s): %s", epost_json_path.name, e)
 
-        try:
+    if json_data:
+        dokumenteid = json_data.get("_dokumenteid")
+
+        # buyer_* aus JSON übernehmen (überschreibt PDF nur wenn JSON-Wert gesetzt)
+        for key in [
+            "buyer_name", "buyer_name2", "buyer_name3",
+            "buyer_street", "buyer_zip", "buyer_city", "buyer_country",
+            "buyer_customer_number",
+        ]:
+            val = json_data.get(key)
+            if val:
+                invoice_data[key] = val
+
+        # Leitweg-ID aus JSON hat höchste Priorität
+        if json_data.get("leitweg_id"):
+            invoice_data["leitweg_id"] = json_data["leitweg_id"]
+            logger.info("Leitweg-ID aus JSON (ePost): %s", invoice_data["leitweg_id"])
+
+        # Positionen aus JSON (internes Format mit items)
+        if json_data.get("items"):
+            invoice_data["items"] = json_data["items"]
+
+    # ── 2c: DB-Lookup ─────────────────────────────────────────────────────
+    db_data = None
+    try:
+        if dokumenteid:
+            # Direkter Lookup via dokumenteid (aus ePost-JSON custom4)
+            from src.database.db import get_invoice_by_dokumenteid
+            db_data = get_invoice_by_dokumenteid(dokumenteid)
+            logger.info("DB-Daten geladen per dokumenteid=%s", dokumenteid)
+        else:
+            # Fallback: Lookup via Rechnungsnummer
             from src.database.db import get_invoice_full
             db_data = get_invoice_full(invoice_number)
-        except Exception as e:
-            logger.error("Datenbankfehler: %s", e)
-            db_data = None
+            logger.info("DB-Daten geladen per Rechnungsnummer=%s", invoice_number)
+    except Exception as e:
+        logger.error("Datenbankfehler: %s", e)
 
-        if json_companion_data and json_companion_data.get("items"):
-            invoice_data = json_companion_data
-            if db_data:
-                for key, val in db_data.items():
-                    if val is not None and val != "" and not invoice_data.get(key):
-                        invoice_data[key] = val
-            logger.info(
-                "Rechnungsdaten: JSON-Positionen + DB-Ergänzung (%s)",
-                companion_json.name,
-            )
-        else:
-            invoice_data = db_data
-            logger.info("Begleit-JSON ohne Positionen — nur Datenbankdaten verwendet")
-    else:
-        try:
-            from src.database.db import get_invoice_full
-            invoice_data = get_invoice_full(invoice_number)
-        except Exception as e:
-            logger.error("Datenbankfehler: %s", e)
-            invoice_data = None
+    if db_data:
+        # DB-Daten übernehmen — buyer_* aus PDF/JSON werden NICHT überschrieben
+        _BUYER_KEYS = {
+            "buyer_name", "buyer_name2", "buyer_name3",
+            "buyer_street", "buyer_zip", "buyer_city", "buyer_country",
+            "buyer_customer_number", "leitweg_id",
+        }
+        for key, val in db_data.items():
+            if key in _BUYER_KEYS:
+                # Nur setzen wenn noch nicht aus PDF/JSON vorhanden
+                if not invoice_data.get(key) and val is not None and val != "":
+                    invoice_data[key] = val
+            elif key == "items":
+                # Positionen aus DB nur übernehmen wenn noch keine vorhanden
+                # (JSON-Positionen haben Vorrang, ePost-JSON liefert keine items)
+                if not invoice_data.get("items") and val:
+                    invoice_data[key] = val
+            else:
+                # Alle anderen Felder (Kopfdaten, Verkäufer) immer übernehmen
+                if val is not None and val != "":
+                    invoice_data[key] = val
 
-    if not invoice_data:
-        logger.error("Keine Rechnungsdaten für %s", invoice_number)
+    # ── 2d: Leitweg-ID via Lizenznehmer-ID aus PDF (falls noch fehlend) ──
+    if not invoice_data.get("leitweg_id"):
+        lizenznehmer_id = invoice_data.get("_lizenznehmer_id")
+        if lizenznehmer_id:
+            try:
+                from src.database.db import get_leitweg_id_by_kundenid
+                leitweg_id = get_leitweg_id_by_kundenid(int(lizenznehmer_id))
+                if leitweg_id:
+                    invoice_data["leitweg_id"] = leitweg_id
+                    logger.info(
+                        "Leitweg-ID aus DB (via Lizenznehmer %s): %s",
+                        lizenznehmer_id, leitweg_id
+                    )
+            except Exception as e:
+                logger.warning("Leitweg-ID-Lookup fehlgeschlagen: %s", e)
+
+    # Interne Hilfsfelder entfernen
+    invoice_data.pop("_lizenznehmer_id", None)
+    invoice_data.pop("_dokumenteid", None)
+
+    if not invoice_data.get("items"):
+        logger.error("Keine Rechnungspositionen für %s", invoice_number)
         _move_to_error(
             file_path, config,
-            reason=f"Keine Rechnungsdaten in der Datenbank für Rechnungsnummer: {invoice_number}",
+            reason=f"Keine Rechnungspositionen gefunden für: {invoice_number}",
             companion_json=companion_json,
         )
         return False, None
 
-    # Schritt 3: Verkäuferdaten-Fallback
-    _apply_seller_fallback(invoice_data, file_path, config)
+    if not invoice_data.get("invoice_number"):
+        invoice_data["invoice_number"] = invoice_number
 
-    # Schritt 3b: Leistungsdatum aus PDF ermitteln (nur bei PDF-Eingabe)
-    # Primär: Startdatum des Abrechnungszeitraums aus dem PDF-Text.
-    # Fallback: Rechnungsdatum (behebt BR-DE-TMP-32 wenn kein Zeitraum angegeben).
-    if not invoice_data.get("service_start") and file_path.suffix.lower() == ".pdf":
-        try:
-            from src.xrechnung.pdf_reader import extract_service_start_date
-            pdf_service_start = extract_service_start_date(file_path)
-            if pdf_service_start:
-                invoice_data["service_start"] = pdf_service_start
-                logger.info("Leistungsbeginn aus PDF: %s", pdf_service_start)
-            else:
-                logger.debug(
-                    "Kein Abrechnungszeitraum im PDF — Fallback auf Rechnungsdatum"
-                )
-        except Exception as e:
-            logger.warning("Leistungsdatum aus PDF nicht lesbar: %s", e)
+    # ── Schritt 3: Verkäuferdaten-Fallback ───────────────────────────────
+    _apply_seller_fallback(invoice_data, file_path, config)
 
     # Schritt 4: XML generieren
     try:
@@ -465,12 +546,22 @@ def _collect_files(config: dict) -> tuple[list, dict]:
 
 
 def _log_pair_discrepancies(companion_map: dict) -> None:
-    """Protokolliert Abweichungen zwischen JSON und DB als WARNING (kein Dialog im Dienst-Modus)."""
+    """Protokolliert Abweichungen zwischen JSON und DB als WARNING (kein Dialog im Dienst-Modus).
+    Wird nur ausgeführt wenn die JSON tatsächlich Positionen enthält (internes Format).
+    ePost-JSONs (custom1/addressLine*) haben keine items — diese werden übersprungen.
+    """
     for _pdf_path, json_path in companion_map.items():
         try:
             from src.xrechnung.json_reader import extract_from_json
             invoice_number, json_data = extract_from_json(json_path)
+            # ePost-JSON oder JSON ohne Positionen — kein Vergleich möglich
             if not json_data or not invoice_number:
+                continue
+            if not json_data.get("items"):
+                logger.debug(
+                    "JSON %s enthält keine Positionen (ePost-Format) — Abgleich übersprungen",
+                    json_path.name,
+                )
                 continue
 
             from src.database.db import get_invoice_full
@@ -561,18 +652,43 @@ def run_once(config: dict, dry_run: bool = False) -> tuple[int, int]:
 
     # Protokoll-Mail nach Abschluss des Laufs (nur wenn REPORT_EMAIL konfiguriert)
     if not dry_run:
-        try:
-            from src.transmitter.transmitter import send_report
-            send_report(
-                config=config,
-                processed=processed,
-                failed=failed,
-                invoice_names=invoice_names,
-                failed_names=failed_names,
-                xml_paths=xml_paths,
-            )
-        except Exception as e:
-            logger.warning("Protokoll-Mail nicht gesendet: %s", e)
+        report_email = config.get("REPORT_EMAIL", "").strip()
+        if not report_email:
+            logger.debug("Protokoll-Mail deaktiviert (REPORT_EMAIL nicht gesetzt)")
+        else:
+            logger.info("Sende Protokoll-Mail an: %s", report_email)
+            try:
+                from src.transmitter.transmitter import send_report
+                # Aktuelle Lauf-Log-Datei ermitteln (FileHandler in logs/runs/)
+                run_log_path = None
+                for handler in logging.getLogger("xrechnung").handlers:
+                    if (
+                        isinstance(handler, logging.FileHandler)
+                        and "runs" in str(getattr(handler, "baseFilename", ""))
+                    ):
+                        run_log_path = Path(handler.baseFilename)
+                        break
+                ok = send_report(
+                    config=config,
+                    processed=processed,
+                    failed=failed,
+                    invoice_names=invoice_names,
+                    failed_names=failed_names,
+                    xml_paths=xml_paths,
+                    run_log_path=run_log_path,
+                )
+                if ok:
+                    logger.info("Protokoll-Mail erfolgreich gesendet")
+                else:
+                    logger.error(
+                        "Protokoll-Mail fehlgeschlagen — prüfe SMTP-Konfiguration "
+                        "und REPORT_EMAIL in der .env"
+                    )
+            except Exception as e:
+                logger.error(
+                    "Protokoll-Mail fehlgeschlagen (Exception): %s — "
+                    "prüfe SMTP-Konfiguration und REPORT_EMAIL in der .env", e
+                )
 
     return processed, failed
 

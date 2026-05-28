@@ -90,6 +90,7 @@ def send_report(
     invoice_names: list[str],
     failed_names: list[str],
     xml_paths: Optional[list[Path]] = None,
+    run_log_path: Optional[Path] = None,
 ) -> bool:
     """
     Sendet eine Protokoll-Mail an REPORT_EMAIL nach Abschluss des Verarbeitungslaufs.
@@ -108,7 +109,8 @@ def send_report(
 
     try:
         msg = _build_report_email(
-            config, processed, failed, invoice_names, failed_names, xml_paths
+            config, processed, failed, invoice_names, failed_names,
+            xml_paths, run_log_path
         )
         _send(msg, config)
         logger.info("Protokoll-Mail gesendet → %s", report_email)
@@ -125,6 +127,7 @@ def _build_report_email(
     invoice_names: list[str],
     failed_names: list[str],
     xml_paths: Optional[list[Path]],
+    run_log_path: Optional[Path] = None,
 ) -> EmailMessage:
     """Baut die Protokoll-Mail zusammen."""
     report_email  = config["REPORT_EMAIL"].strip()
@@ -162,6 +165,9 @@ def _build_report_email(
     if attach_xml and xml_paths:
         lines.append(f"{len(xml_paths)} XML-Datei(en) als Anhang beigefügt.")
         lines.append("")
+    if run_log_path and run_log_path.exists():
+        lines.append(f"Laufprotokoll als Anhang beigefügt: {run_log_path.name}")
+        lines.append("")
 
     lines += [
         "---",
@@ -192,5 +198,19 @@ def _build_report_email(
                     )
                 except Exception as e:
                     logger.debug("XML-Anhang fehlgeschlagen (%s): %s", xml_path.name, e)
+
+    # Lauf-Log als Anhang
+    if run_log_path and run_log_path.exists():
+        try:
+            with open(run_log_path, "rb") as f:
+                log_data = f.read()
+            msg.add_attachment(
+                log_data,
+                maintype="text",
+                subtype="plain",
+                filename=run_log_path.name,
+            )
+        except Exception as e:
+            logger.debug("Log-Anhang fehlgeschlagen: %s", e)
 
     return msg

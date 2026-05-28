@@ -33,6 +33,25 @@ _APPDIR = (
 if str(_APPDIR) not in sys.path:
     sys.path.insert(0, str(_APPDIR))
 
+
+def _find_icon(*names: str):
+    """
+    Sucht Icon-Dateien in dieser Reihenfolge:
+      1. sys._MEIPASS  — PyInstaller --onefile entpackt datas hierhin
+      2. _APPDIR       — Entwicklungsmodus oder --onedir
+    Gibt den ersten gefundenen Pfad zurück, oder None.
+    """
+    search_dirs = []
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        search_dirs.append(Path(sys._MEIPASS))
+    search_dirs.append(_APPDIR)
+    for directory in search_dirs:
+        for name in names:
+            candidate = directory / name
+            if candidate.exists():
+                return candidate
+    return None
+
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QFormLayout, QLabel, QLineEdit, QPushButton, QFileDialog,
@@ -47,150 +66,304 @@ from PySide6.QtGui import QFont, QTextCursor, QIcon
 # ---------------------------------------------------------------------------
 
 STYLESHEET = """
+/* ═══════════════════════════════════════════════════════════════
+   XRechnung-Monitor — Modernes Dark-Sidebar-Theme
+   Akzentfarbe : #4A9EFF  (Blau)
+   Hintergrund : #1C1C1E  (fast schwarz)
+   Surface     : #2C2C2E  (dunkelgrau)
+   Border      : #3A3A3C
+   Text primary: #F2F2F7
+   Text muted  : #8E8E93
+═══════════════════════════════════════════════════════════════ */
+
 QMainWindow, QDialog {
-    background-color: #F5F5F5;
+    background-color: #1C1C1E;
 }
+
 QWidget {
-    font-family: 'Trebuchet MS', Arial, sans-serif;
-    font-size: 11pt;
-    color: #2C2C2A;
-}
-QLabel {
-    color: #2C2C2A;
-}
-QLabel#title {
-    font-size: 15pt;
-    font-weight: bold;
-    color: #E05555;
-}
-QLabel#subtitle {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
     font-size: 10pt;
-    color: #888888;
-    padding-bottom: 4px;
+    color: #F2F2F7;
+    background-color: transparent;
 }
-QLineEdit, QSpinBox, QComboBox {
-    padding: 5px 8px;
-    border: 1px solid #CCCCCC;
-    border-radius: 0px;
-    background: #FFFFFF;
-    color: #2C2C2A;
-    min-height: 24px;
-    selection-background-color: #E05555;
-}
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-    border: 1px solid #E05555;
-}
-QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {
-    background: #F0F0F0;
-    color: #AAAAAA;
-    border-color: #DDDDDD;
-}
-QPushButton {
-    padding: 6px 18px;
-    border: 1px solid #CCCCCC;
-    border-radius: 0px;
-    background: #FFFFFF;
-    color: #2C2C2A;
-    min-height: 28px;
-}
-QPushButton:hover {
-    background: #F0F0F0;
-    border-color: #E05555;
-}
-QPushButton#primary {
-    background: #E05555;
-    color: #FFFFFF;
-    border: none;
-    font-weight: bold;
-}
-QPushButton#primary:hover {
-    background: #C04040;
-}
-QPushButton#primary:disabled {
-    background: #E8A8A8;
-}
-QPushButton:disabled {
-    background: #F0F0F0;
-    color: #AAAAAA;
-    border-color: #DDDDDD;
-}
-QGroupBox {
-    font-weight: bold;
-    color: #2C2C2A;
-    border: 1px solid #CCCCCC;
-    margin-top: 14px;
-    padding-top: 10px;
-    padding-bottom: 6px;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 4px;
-    background-color: #F5F5F5;
-}
-QCheckBox {
-    color: #2C2C2A;
-    spacing: 8px;
-}
-QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border: 1px solid #CCCCCC;
-    background: #FFFFFF;
-}
-QCheckBox::indicator:checked {
-    background: #E05555;
-    border-color: #E05555;
-}
-QCheckBox:disabled {
-    color: #AAAAAA;
-}
-QTextEdit#log_view {
-    font-family: 'Courier New', 'Consolas', monospace;
-    font-size: 10pt;
-    border: 1px solid #333333;
-    background: #1E1E1E;
-    color: #D4D4D4;
-    padding: 6px;
-}
-QTabWidget::pane {
-    border: 1px solid #CCCCCC;
-    background: #F5F5F5;
-    top: -1px;
-}
-QTabBar::tab {
-    padding: 8px 24px;
-    border: 1px solid #CCCCCC;
-    border-bottom: none;
-    background: #E8E8E8;
-    color: #555555;
-    min-width: 100px;
-}
-QTabBar::tab:selected {
-    background: #F5F5F5;
-    color: #E05555;
-    font-weight: bold;
-    border-bottom: 1px solid #F5F5F5;
-}
-QTabBar::tab:hover:!selected {
-    background: #F0F0F0;
-}
+
+/* ── Scrollbereiche ──────────────────────────────────────────── */
 QScrollArea {
     border: none;
     background: transparent;
 }
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
 QScrollBar:vertical {
-    width: 10px;
-    background: #F0F0F0;
+    width: 6px;
+    background: transparent;
+    margin: 0;
 }
 QScrollBar::handle:vertical {
-    background: #CCCCCC;
-    min-height: 30px;
+    background: #3A3A3C;
+    border-radius: 3px;
+    min-height: 24px;
 }
 QScrollBar::handle:vertical:hover {
-    background: #E05555;
+    background: #4A9EFF;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────── */
+QTabWidget::pane {
+    border: none;
+    background: #1C1C1E;
+}
+QTabBar {
+    background: #2C2C2E;
+}
+QTabBar::tab {
+    padding: 10px 28px;
+    background: #2C2C2E;
+    color: #8E8E93;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 10pt;
+    font-weight: 500;
+    min-width: 110px;
+}
+QTabBar::tab:selected {
+    color: #4A9EFF;
+    border-bottom: 2px solid #4A9EFF;
+    background: #2C2C2E;
+    font-weight: 600;
+}
+QTabBar::tab:hover:!selected {
+    color: #F2F2F7;
+    background: #3A3A3C;
+}
+
+/* ── GroupBox = Card ─────────────────────────────────────────── */
+QGroupBox {
+    background-color: #2C2C2E;
+    border: 1px solid #3A3A3C;
+    border-radius: 10px;
+    margin-top: 18px;
+    padding: 14px 14px 10px 14px;
+    font-weight: 600;
+    font-size: 10pt;
+    color: #F2F2F7;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 14px;
+    top: -1px;
+    padding: 2px 6px;
+    background-color: #2C2C2E;
+    color: #8E8E93;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* ── Labels ──────────────────────────────────────────────────── */
+QLabel {
+    color: #F2F2F7;
+    background: transparent;
+}
+QLabel#title {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #F2F2F7;
+    letter-spacing: -0.3px;
+}
+QLabel#subtitle {
+    font-size: 9pt;
+    color: #8E8E93;
+}
+QLabel#section_label {
+    font-size: 9pt;
+    font-weight: 600;
+    color: #8E8E93;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* ── Eingabefelder ───────────────────────────────────────────── */
+QLineEdit, QSpinBox, QComboBox {
+    padding: 7px 10px;
+    border: 1px solid #3A3A3C;
+    border-radius: 7px;
+    background: #1C1C1E;
+    color: #F2F2F7;
+    min-height: 20px;
+    selection-background-color: #4A9EFF;
+}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+    border: 1px solid #4A9EFF;
+    background: #1C1C1E;
+}
+QLineEdit:hover, QSpinBox:hover, QComboBox:hover {
+    border-color: #555558;
+}
+QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {
+    background: #2C2C2E;
+    color: #48484A;
+    border-color: #3A3A3C;
+}
+QLineEdit[echoMode="2"] {
+    lineedit-password-character: 9679;
+}
+
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 18px;
+    border: none;
+    background: #3A3A3C;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #4A9EFF;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    image: none;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #8E8E93;
+}
+QComboBox QAbstractItemView {
+    background: #2C2C2E;
+    border: 1px solid #3A3A3C;
+    color: #F2F2F7;
+    selection-background-color: #4A9EFF;
+    selection-color: #FFFFFF;
+    border-radius: 6px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+QPushButton {
+    padding: 7px 18px;
+    border: 1px solid #3A3A3C;
+    border-radius: 7px;
+    background: #3A3A3C;
+    color: #F2F2F7;
+    font-weight: 500;
+    min-height: 28px;
+}
+QPushButton:hover {
+    background: #48484A;
+    border-color: #555558;
+}
+QPushButton:pressed {
+    background: #2C2C2E;
+}
+QPushButton#primary {
+    background: #4A9EFF;
+    color: #FFFFFF;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#primary:hover {
+    background: #5AABFF;
+}
+QPushButton#primary:pressed {
+    background: #3A8EEF;
+}
+QPushButton#primary:disabled {
+    background: #1C3A5E;
+    color: #4A6A8E;
+}
+QPushButton:disabled {
+    background: #2C2C2E;
+    color: #48484A;
+    border-color: #3A3A3C;
+}
+QPushButton#danger {
+    background: #3A1C1C;
+    color: #FF6B6B;
+    border: 1px solid #5A2C2C;
+}
+QPushButton#danger:hover {
+    background: #4A2424;
+}
+
+/* ── Checkboxen mit echtem Häkchen ───────────────────────────── */
+QCheckBox {
+    color: #F2F2F7;
+    spacing: 10px;
+    font-size: 10pt;
+}
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid #3A3A3C;
+    border-radius: 5px;
+    background: #1C1C1E;
+}
+QCheckBox::indicator:hover {
+    border-color: #4A9EFF;
+}
+QCheckBox::indicator:checked {
+    background: #4A9EFF;
+    border-color: #4A9EFF;
+    image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMiA2TDQuNSA4LjVMMTAgMyIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==);
+}
+QCheckBox::indicator:disabled {
+    background: #2C2C2E;
+    border-color: #3A3A3C;
+}
+QCheckBox:disabled {
+    color: #48484A;
+}
+
+/* ── Log-Fenster ─────────────────────────────────────────────── */
+QTextEdit#log_view {
+    font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+    font-size: 9pt;
+    border: 1px solid #3A3A3C;
+    border-radius: 8px;
+    background: #131315;
+    color: #A8B8C8;
+    padding: 8px;
+    line-height: 1.5;
+}
+
+/* ── FormLayout Labels ───────────────────────────────────────── */
+QFormLayout QLabel {
+    color: #8E8E93;
+    font-size: 9pt;
+    font-weight: 500;
+}
+
+/* ── Statusleiste ────────────────────────────────────────────── */
+QStatusBar {
+    background: #2C2C2E;
+    color: #8E8E93;
+    font-size: 9pt;
+    border-top: 1px solid #3A3A3C;
+}
+QStatusBar::item {
+    border: none;
+}
+
+/* ── Separator ───────────────────────────────────────────────── */
+QFrame[frameShape="4"],
+QFrame[frameShape="5"] {
+    color: #3A3A3C;
+    background: #3A3A3C;
+    border: none;
+    max-height: 1px;
 }
 """
+
 
 # ---------------------------------------------------------------------------
 # Logging-Handler für die GUI
@@ -231,7 +404,9 @@ def load_config_safe() -> Optional[dict]:
         return None
 
     # Monitor-spezifische Felder nachladen (dotenv hat sie bereits in os.environ)
-    cfg["SCAN_JSON"] = os.getenv("SCAN_JSON", "false")
+    cfg["SCAN_JSON"]        = os.getenv("SCAN_JSON", "false")
+    cfg["REPORT_EMAIL"]     = os.getenv("REPORT_EMAIL", "")
+    cfg["REPORT_ATTACH_XML"]= os.getenv("REPORT_ATTACH_XML", "false")
     return cfg
 
 
@@ -276,6 +451,10 @@ def save_config(values: dict, env_path: Path) -> None:
         "",
         "# --- Scan-Einstellungen ---",
         f"SCAN_JSON={v('SCAN_JSON', 'false')}",
+        "",
+        "# --- Protokoll-Mail ---",
+        f"REPORT_EMAIL={v('REPORT_EMAIL')}",
+        f"REPORT_ATTACH_XML={v('REPORT_ATTACH_XML', 'false')}",
         "",
         "# --- Verkäuferdaten (Fallback wenn Datenbanktabelle fehlt) ---",
         f"SELLER_NAME={v('SELLER_NAME')}",
@@ -448,6 +627,9 @@ def _check_pairs_for_discrepancies(companion_map: dict, config: dict) -> str:
 
         if not json_data or not invoice_number:
             continue
+        # ePost-JSON hat keine items — kein Positions-Vergleich möglich
+        if not json_data.get("items"):
+            continue
 
         try:
             from src.database.db import get_invoice_full
@@ -534,51 +716,112 @@ def process_file(
 
     log.info("Rechnungsnummer: %s", invoice_number)
 
-    # ── Schritt 2: Rechnungsdaten ───────────────────────────────────────────
-    if invoice_data_from_json and invoice_data_from_json.get("items"):
-        # Standalone JSON-Eingabe (kein PDF-Begleiter)
-        invoice_data = invoice_data_from_json
-        log.info("Rechnungsdaten aus JSON-Datei übernommen")
-    elif companion_json:
-        # Gepaarter Modus: JSON liefert Positionen, DB ergänzt fehlende Felder
-        json_companion_data = None
+    # ── Schritt 2: Daten zusammenführen (PDF → JSON → DB) ─────────────────
+    invoice_data: dict = {}
+    is_pdf = file_path.suffix.lower() == ".pdf"
+
+    # 2a: PDF — Adressblock, Lizenznehmer-ID, Leistungsdatum
+    if is_pdf:
+        try:
+            from src.xrechnung.pdf_reader import (
+                extract_buyer_address, extract_lizenznehmer_id, extract_service_start_date,
+            )
+            pdf_buyer = extract_buyer_address(file_path)
+            if pdf_buyer:
+                invoice_data.update(pdf_buyer)
+                log.info("Empfängeradresse aus PDF: %s", pdf_buyer.get("buyer_name", "?"))
+            lizenznehmer_id = extract_lizenznehmer_id(file_path)
+            if lizenznehmer_id:
+                invoice_data["_lizenznehmer_id"] = lizenznehmer_id
+            pdf_service_start = extract_service_start_date(file_path)
+            if pdf_service_start:
+                invoice_data["service_start"] = pdf_service_start
+        except Exception as e:
+            log.warning("PDF-Extraktion fehlgeschlagen: %s", e)
+
+    # 2b: JSON (companion oder Standalone)
+    json_data   = None
+    dokumenteid = None
+    epost_json_path = companion_json if companion_json else (
+        file_path if file_path.suffix.lower() == ".json" else None
+    )
+    if epost_json_path:
         try:
             from src.xrechnung.json_reader import extract_from_json
-            _, json_companion_data = extract_from_json(companion_json)
+            _, json_data = extract_from_json(epost_json_path)
         except Exception as e:
-            log.warning("Begleit-JSON nicht lesbar: %s", e)
+            log.warning("JSON nicht lesbar (%s): %s", epost_json_path.name, e)
 
-        try:
+    if json_data:
+        dokumenteid = json_data.get("_dokumenteid")
+        for key in [
+            "buyer_name", "buyer_name2", "buyer_name3",
+            "buyer_street", "buyer_zip", "buyer_city", "buyer_country",
+            "buyer_customer_number",
+        ]:
+            val = json_data.get(key)
+            if val:
+                invoice_data[key] = val
+        if json_data.get("leitweg_id"):
+            invoice_data["leitweg_id"] = json_data["leitweg_id"]
+            log.info("Leitweg-ID aus JSON: %s", invoice_data["leitweg_id"])
+        if json_data.get("items"):
+            invoice_data["items"] = json_data["items"]
+
+    # 2c: DB — Positionen und Kopfdaten
+    db_data = None
+    try:
+        if dokumenteid:
+            from src.database.db import get_invoice_by_dokumenteid
+            db_data = get_invoice_by_dokumenteid(dokumenteid)
+        else:
             from src.database.db import get_invoice_full
             db_data = get_invoice_full(invoice_number)
-        except Exception as e:
-            log.error("Datenbankfehler: %s", e)
-            db_data = None
+    except Exception as e:
+        log.error("Datenbankfehler: %s", e)
 
-        if json_companion_data and json_companion_data.get("items"):
-            invoice_data = json_companion_data
-            if db_data:
-                for key, val in db_data.items():
-                    if val is not None and val != "" and not invoice_data.get(key):
-                        invoice_data[key] = val
-            log.info("Rechnungsdaten: JSON-Positionen + DB-Ergänzung (%s)", companion_json.name)
-        else:
-            invoice_data = db_data
-            log.info("Begleit-JSON ohne Positionen — nur Datenbankdaten verwendet")
-    else:
-        try:
-            from src.database.db import get_invoice_full
-            invoice_data = get_invoice_full(invoice_number)
-        except Exception as e:
-            log.error("Datenbankfehler: %s", e)
-            invoice_data = None
+    _BUYER_KEYS = {
+        "buyer_name", "buyer_name2", "buyer_name3",
+        "buyer_street", "buyer_zip", "buyer_city", "buyer_country",
+        "buyer_customer_number", "leitweg_id",
+    }
+    if db_data:
+        for key, val in db_data.items():
+            if key in _BUYER_KEYS:
+                if not invoice_data.get(key) and val is not None and val != "":
+                    invoice_data[key] = val
+            elif key == "items":
+                if not invoice_data.get("items") and val:
+                    invoice_data[key] = val
+            else:
+                if val is not None and val != "":
+                    invoice_data[key] = val
 
-    if not invoice_data:
-        log.error("Keine Rechnungsdaten für %s", invoice_number)
+    # 2d: Leitweg-ID via Lizenznehmer-ID aus PDF
+    if not invoice_data.get("leitweg_id"):
+        lizenznehmer_id = invoice_data.get("_lizenznehmer_id")
+        if lizenznehmer_id:
+            try:
+                from src.database.db import get_leitweg_id_by_kundenid
+                leitweg_id = get_leitweg_id_by_kundenid(int(lizenznehmer_id))
+                if leitweg_id:
+                    invoice_data["leitweg_id"] = leitweg_id
+                    log.info("Leitweg-ID via Lizenznehmer %s: %s", lizenznehmer_id, leitweg_id)
+            except Exception as e:
+                log.warning("Leitweg-ID-Lookup fehlgeschlagen: %s", e)
+
+    invoice_data.pop("_lizenznehmer_id", None)
+    invoice_data.pop("_dokumenteid", None)
+
+    if not invoice_data.get("items"):
+        log.error("Keine Rechnungspositionen für %s", invoice_number)
         _move_to_error(file_path, config,
-            reason=f"Keine Rechnungsdaten in der Datenbank für: {invoice_number}",
+            reason=f"Keine Rechnungspositionen gefunden für: {invoice_number}",
             companion_json=companion_json)
         return False
+
+    if not invoice_data.get("invoice_number"):
+        invoice_data["invoice_number"] = invoice_number
 
     # ── Schritt 2b: Verkäuferdaten-Fallback ────────────────────────────────
     _apply_seller_fallback(invoice_data, file_path, config, log)
@@ -671,7 +914,19 @@ class ProcessWorker(QThread):
         self._stop = True
 
     def run(self):
-        processed = failed = 0
+        from src.utils.logger import setup_run_logger, close_run_logger
+        from src.transmitter.transmitter import send_report
+        import logging as _logging
+
+        # Lauf-Log anlegen
+        log_file = self._config.get("LOG_FILE", "logs/xrechnung_dienst.log")
+        run_handler = setup_run_logger(log_file=log_file)
+
+        processed    = failed = 0
+        invoice_names: list = []
+        failed_names:  list = []
+        xml_paths:     list = []
+
         for fp in self._files:
             if self._stop:
                 break
@@ -681,10 +936,63 @@ class ProcessWorker(QThread):
                               companion_json=companion)
             if ok:
                 processed += 1
+                invoice_names.append(fp.name)
+                # XML-Pfad aus processed/<stem>/ ermitteln
+                xml_candidate = (
+                    Path(self._config.get("PROCESSED_FOLDER", "processed"))
+                    / fp.stem / f"{fp.stem}.xml"
+                )
+                if xml_candidate.exists():
+                    xml_paths.append(xml_candidate)
                 self.file_done.emit(fp.name)
             else:
                 failed += 1
+                failed_names.append(fp.name)
                 self.file_error.emit(fp.name)
+
+        # Protokoll-Mail senden (nur bei echtem Lauf)
+        if not self._dry_run:
+            report_email = self._config.get("REPORT_EMAIL", "").strip()
+            if not report_email:
+                _logging.getLogger("xrechnung.monitor").debug(
+                    "Protokoll-Mail deaktiviert (REPORT_EMAIL nicht gesetzt)"
+                )
+            else:
+                _logging.getLogger("xrechnung.monitor").info(
+                    "Sende Protokoll-Mail an: %s", report_email
+                )
+                try:
+                    run_log_path = None
+                    for handler in _logging.getLogger("xrechnung").handlers:
+                        if (
+                            isinstance(handler, _logging.FileHandler)
+                            and "runs" in str(getattr(handler, "baseFilename", ""))
+                        ):
+                            run_log_path = Path(handler.baseFilename)
+                            break
+                    ok_mail = send_report(
+                        config=self._config,
+                        processed=processed,
+                        failed=failed,
+                        invoice_names=invoice_names,
+                        failed_names=failed_names,
+                        xml_paths=xml_paths,
+                        run_log_path=run_log_path,
+                    )
+                    if ok_mail:
+                        _logging.getLogger("xrechnung.monitor").info(
+                            "Protokoll-Mail erfolgreich gesendet"
+                        )
+                    else:
+                        _logging.getLogger("xrechnung.monitor").error(
+                            "Protokoll-Mail fehlgeschlagen — prüfe SMTP und REPORT_EMAIL"
+                        )
+                except Exception as e:
+                    _logging.getLogger("xrechnung.monitor").error(
+                        "Protokoll-Mail fehlgeschlagen (Exception): %s", e
+                    )
+
+        close_run_logger(run_handler)
         self.all_done.emit(processed, failed)
 
 
@@ -786,7 +1094,7 @@ class DashboardTab(QWidget):
         opt_row.addStretch()
 
         self.lbl_status = QLabel("● Bereit")
-        self.lbl_status.setStyleSheet("color: #2E7D32; font-weight: bold;")
+        self.lbl_status.setStyleSheet("color: #30D158; font-weight: 600;")
         opt_row.addWidget(self.lbl_status)
         action_layout.addLayout(opt_row)
         root.addWidget(action_grp)
@@ -803,7 +1111,7 @@ class DashboardTab(QWidget):
 
         bottom_row = QHBoxLayout()
         self.lbl_stats = QLabel("Verarbeitet: 0 | Fehler: 0")
-        self.lbl_stats.setStyleSheet("color: #555555; font-size: 10pt;")
+        self.lbl_stats.setStyleSheet("color: #8E8E93; font-size: 9pt; font-family: 'Segoe UI';")
         bottom_row.addWidget(self.lbl_stats)
         bottom_row.addStretch()
         self.btn_clear = QPushButton("Protokoll leeren")
@@ -993,6 +1301,29 @@ class SettingsTab(QWidget):
         log_form.addRow("Log-Level:", self.log_level)
         layout.addWidget(log_grp)
 
+        # ── Protokoll-Mail ─────────────────────────────────────────────────
+        report_grp  = QGroupBox("Protokoll-Mail")
+        report_form = QFormLayout(report_grp)
+        report_form.setSpacing(6)
+        report_form.setLabelAlignment(Qt.AlignRight)
+
+        report_hint = QLabel(
+            "Nach jedem Verarbeitungslauf wird ein Protokoll an diese Adresse gesendet.\n"
+            "Leer lassen = kein Protokoll."
+        )
+        report_hint.setObjectName("subtitle")
+        report_hint.setWordWrap(True)
+        report_form.addRow(report_hint)
+
+        self.report_email = QLineEdit()
+        self.report_email.setPlaceholderText("buchhaltung@firma.de")
+        report_form.addRow("Protokoll-E-Mail:", self.report_email)
+
+        self.report_attach_xml = QCheckBox("Erzeugte XML-Dateien als Anhang beifügen")
+        report_form.addRow("", self.report_attach_xml)
+
+        layout.addWidget(report_grp)
+
         # ── Verkäuferdaten ─────────────────────────────────────────────────
         seller_grp = QGroupBox("Verkäuferdaten (Absender-Fallback)")
         seller_form = QFormLayout(seller_grp)
@@ -1072,10 +1403,10 @@ class SettingsTab(QWidget):
             )
             conn.close()
             self.lbl_test_db.setText("✔ Verbindung erfolgreich")
-            self.lbl_test_db.setStyleSheet("color: #2E7D32; font-weight: bold;")
+            self.lbl_test_db.setStyleSheet("color: #30D158; font-weight: 600;")
         except Exception as e:
             self.lbl_test_db.setText(f"✘ {e}")
-            self.lbl_test_db.setStyleSheet("color: #E05555; font-weight: bold;")
+            self.lbl_test_db.setStyleSheet("color: #FF6B6B; font-weight: 600;")
 
     def _read_seller_from_pdf(self) -> None:
         """Öffnet einen PDF-Dialog und befüllt die Verkäufer-Felder automatisch."""
@@ -1089,12 +1420,12 @@ class SettingsTab(QWidget):
             data = extract_seller_from_pdf(Path(path))
         except Exception as e:
             self.lbl_pdf_read.setText(f"✘ {e}")
-            self.lbl_pdf_read.setStyleSheet("color: #E05555; font-weight: bold;")
+            self.lbl_pdf_read.setStyleSheet("color: #FF6B6B; font-weight: 600;")
             return
 
         if not data:
             self.lbl_pdf_read.setText("Keine Daten gefunden")
-            self.lbl_pdf_read.setStyleSheet("color: #E05555;")
+            self.lbl_pdf_read.setStyleSheet("color: #FF6B6B;")
             return
 
         filled = []
@@ -1117,10 +1448,10 @@ class SettingsTab(QWidget):
 
         if filled:
             self.lbl_pdf_read.setText(f"✔ {', '.join(filled)} erkannt")
-            self.lbl_pdf_read.setStyleSheet("color: #2E7D32; font-weight: bold;")
+            self.lbl_pdf_read.setStyleSheet("color: #30D158; font-weight: 600;")
         else:
             self.lbl_pdf_read.setText("Keine Daten erkannt")
-            self.lbl_pdf_read.setStyleSheet("color: #888888;")
+            self.lbl_pdf_read.setStyleSheet("color: #8E8E93;")
 
     def load_from_config(self, cfg: dict) -> None:
         self.db_host.setText(cfg.get("DB_HOST", "localhost"))
@@ -1141,6 +1472,11 @@ class SettingsTab(QWidget):
         self.error_folder.setText(cfg.get("ERROR_FOLDER", "error"))
         self.log_file.setText(cfg.get("LOG_FILE", "logs/xrechnung_dienst.log"))
         self.log_level.setCurrentText(cfg.get("LOG_LEVEL", "INFO"))
+        # Protokoll-Mail
+        self.report_email.setText(cfg.get("REPORT_EMAIL", ""))
+        self.report_attach_xml.setChecked(
+            str(cfg.get("REPORT_ATTACH_XML", "false")).lower() == "true"
+        )
         # Verkäuferdaten
         self.seller_name.setText(cfg.get("SELLER_NAME", ""))
         self.seller_street.setText(cfg.get("SELLER_STREET", ""))
@@ -1174,6 +1510,9 @@ class SettingsTab(QWidget):
             "LOG_LEVEL":        self.log_level.currentText(),
             "LOG_MAX_BYTES":    "5242880",
             "LOG_BACKUP_COUNT": "3",
+            # Protokoll-Mail
+            "REPORT_EMAIL":      self.report_email.text().strip(),
+            "REPORT_ATTACH_XML": str(self.report_attach_xml.isChecked()).lower(),
             # Verkäuferdaten
             "SELLER_NAME":    self.seller_name.text().strip(),
             "SELLER_STREET":  self.seller_street.text().strip(),
@@ -1230,7 +1569,8 @@ class OutputFilesTab(QWidget):
             'Beispiel komplett: {"invoice_number": "20260105-001", "items": [...]}'
         )
         json_hint.setStyleSheet(
-            "color: #777777; font-size: 9pt; padding-left: 28px;"
+            "color: #6E6E73; font-size: 9pt; padding: 8px 8px 8px 28px;"
+            "background: #131315; border-radius: 6px; margin-left: 28px;"
             "font-family: 'Courier New', monospace;"
         )
         json_hint.setWordWrap(True)
@@ -1252,7 +1592,7 @@ class OutputFilesTab(QWidget):
             "Fehlgeschlagene Rechnungen landen mit Fehlerprotokoll unter Fehler/<timestamp_name>/."
         )
         out_info.setStyleSheet(
-            "color: #555555; font-size: 10pt; padding: 4px;"
+            "color: #8E8E93; font-size: 9pt; padding: 4px;"
             "font-family: 'Courier New', monospace;"
         )
         out_info.setWordWrap(True)
@@ -1294,6 +1634,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("XRechnung-Monitor")
         self.setMinimumSize(920, 680)
         self.resize(1020, 740)
+        # App-Icon setzen — Suche in _MEIPASS (EXE) dann _APPDIR (Entwicklung)
+        _icon_path = _find_icon("fuxmedia_dark.ico", "fuxmedia_dark_256.png")
+        if _icon_path:
+            self.setWindowIcon(QIcon(str(_icon_path)))
 
         self._config       : dict             = {}
         self._worker       : Optional[ProcessWorker]  = None
@@ -1312,21 +1656,32 @@ class MainWindow(QMainWindow):
 
         # Kopfzeile
         header = QWidget()
-        header.setStyleSheet("background-color: #2C2C2A;")
-        header.setFixedHeight(52)
+        header.setStyleSheet(
+            "background-color: #2C2C2E;"
+            "border-bottom: 1px solid #3A3A3C;"
+        )
+        header.setFixedHeight(56)
         hdr_row = QHBoxLayout(header)
-        hdr_row.setContentsMargins(16, 0, 16, 0)
+        hdr_row.setContentsMargins(20, 0, 20, 0)
+
+        # Blauer Akzentpunkt
+        dot = QLabel("●")
+        dot.setStyleSheet("color: #4A9EFF; font-size: 10pt; margin-right: 4px;")
+        hdr_row.addWidget(dot)
 
         lbl_appname = QLabel("XRechnung-Monitor")
         lbl_appname.setStyleSheet(
-            "color: #FFFFFF; font-size: 15pt; font-weight: bold;"
-            "font-family: 'Trebuchet MS', Arial;"
+            "color: #F2F2F7; font-size: 13pt; font-weight: 600;"
+            "font-family: 'Segoe UI', Arial; letter-spacing: -0.3px;"
         )
         hdr_row.addWidget(lbl_appname)
         hdr_row.addStretch()
 
         lbl_version = QLabel("v1.0")
-        lbl_version.setStyleSheet("color: #888888; font-size: 10pt;")
+        lbl_version.setStyleSheet(
+            "color: #48484A; font-size: 9pt;"
+            "background: #3A3A3C; border-radius: 4px; padding: 2px 8px;"
+        )
         hdr_row.addWidget(lbl_version)
         root.addWidget(header)
 
@@ -1391,11 +1746,11 @@ class MainWindow(QMainWindow):
         try:
             save_config(values, env_path)
             self.settings_tab.lbl_save.setText("✔ Gespeichert")
-            self.settings_tab.lbl_save.setStyleSheet("color: #2E7D32; font-weight: bold;")
+            self.settings_tab.lbl_save.setStyleSheet("color: #30D158; font-weight: 600;")
             self._reload_config()
         except Exception as e:
             self.settings_tab.lbl_save.setText(f"✘ {e}")
-            self.settings_tab.lbl_save.setStyleSheet("color: #E05555; font-weight: bold;")
+            self.settings_tab.lbl_save.setStyleSheet("color: #FF6B6B; font-weight: 600;")
 
     def _change_folder(self) -> None:
         current = self._config.get("WATCH_FOLDER", str(_APPDIR))
@@ -1567,6 +1922,9 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("XRechnung-Monitor")
     app.setApplicationVersion("1.0")
+    _app_icon_path = _find_icon("fuxmedia_dark.ico", "fuxmedia_dark_256.png")
+    if _app_icon_path:
+        app.setWindowIcon(QIcon(str(_app_icon_path)))
     app.setFont(QFont("Trebuchet MS", 11))
     app.setStyleSheet(STYLESHEET)
 

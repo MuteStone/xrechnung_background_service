@@ -36,6 +36,25 @@ def base_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _find_icon(*names: str):
+    """
+    Sucht Icon-Dateien in dieser Reihenfolge:
+      1. sys._MEIPASS  — PyInstaller --onefile entpackt datas hierhin
+      2. base_dir()    — Entwicklungsmodus oder --onedir
+    Gibt den ersten gefundenen Pfad zurück, oder None.
+    """
+    search_dirs = []
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        search_dirs.append(Path(sys._MEIPASS))
+    search_dirs.append(base_dir())
+    for directory in search_dirs:
+        for name in names:
+            candidate = directory / name
+            if candidate.exists():
+                return candidate
+    return None
+
+
 def write_env(values: dict, path: Path) -> None:
     """Schreibt alle Konfigurationswerte in die .env-Datei."""
     def v(key, default=""):
@@ -161,91 +180,127 @@ def test_db_connection(values: dict) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 STYLESHEET = """
+/* ═══════════════════════════════════════════════════════════════
+   XRechnung-Setup — Dark Theme (identisch zum Monitor)
+═══════════════════════════════════════════════════════════════ */
+
 QWizard {
-    background-color: #F5F5F5;
+    background-color: #1C1C1E;
 }
 QWizardPage {
-    background-color: #F5F5F5;
+    background-color: #1C1C1E;
 }
-QLabel {
-    font-family: 'Trebuchet MS', Arial;
-    font-size: 11pt;
-    color: #2C2C2A;
-}
-QLabel#title {
-    font-size: 14pt;
-    font-weight: bold;
-    color: #E05555;
-    padding-bottom: 4px;
-}
-QLabel#subtitle {
+QWidget {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
     font-size: 10pt;
-    color: #888888;
-    padding-bottom: 12px;
+    color: #F2F2F7;
+    background-color: transparent;
 }
+QWizard > QWidget {
+    background-color: #2C2C2E;
+}
+QWizard QAbstractButton {
+    padding: 7px 20px;
+    border: 1px solid #3A3A3C;
+    border-radius: 7px;
+    background: #3A3A3C;
+    color: #F2F2F7;
+    font-weight: 500;
+    min-height: 28px;
+    min-width: 80px;
+}
+QWizard QAbstractButton:hover { background: #48484A; border-color: #555558; }
+QWizard QAbstractButton:disabled { background: #2C2C2E; color: #48484A; }
+QWizard QListView {
+    background: #2C2C2E;
+    border: none;
+    border-right: 1px solid #3A3A3C;
+    color: #8E8E93;
+    font-size: 10pt;
+    padding: 8px 0;
+}
+QWizard QListView::item { padding: 10px 16px; }
+QWizard QListView::item:selected { background: #3A3A3C; color: #4A9EFF; font-weight: 600; }
+QLabel { color: #F2F2F7; background: transparent; }
+QLabel#title { font-size: 14pt; font-weight: 700; color: #F2F2F7; letter-spacing: -0.3px; padding-bottom: 2px; }
+QLabel#subtitle { font-size: 9pt; color: #8E8E93; padding-bottom: 10px; }
 QLineEdit, QSpinBox, QComboBox, QTimeEdit {
-    font-family: 'Trebuchet MS', Arial;
-    font-size: 11pt;
-    padding: 5px 8px;
-    border: 1px solid #CCCCCC;
-    border-radius: 0px;
-    background: #FFFFFF;
-    color: #2C2C2A;
-    min-height: 24px;
+    padding: 7px 10px;
+    border: 1px solid #3A3A3C;
+    border-radius: 7px;
+    background: #1C1C1E;
+    color: #F2F2F7;
+    min-height: 20px;
+    selection-background-color: #4A9EFF;
 }
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTimeEdit:focus {
-    border: 1px solid #E05555;
-}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTimeEdit:focus { border: 1px solid #4A9EFF; }
+QLineEdit:hover, QSpinBox:hover, QComboBox:hover, QTimeEdit:hover { border-color: #555558; }
+QLineEdit:disabled, QSpinBox:disabled { background: #2C2C2E; color: #48484A; border-color: #3A3A3C; }
+QSpinBox::up-button, QSpinBox::down-button, QTimeEdit::up-button, QTimeEdit::down-button { width: 18px; border: none; background: #3A3A3C; }
+QSpinBox::up-button:hover, QSpinBox::down-button:hover, QTimeEdit::up-button:hover, QTimeEdit::down-button:hover { background: #4A9EFF; }
+QComboBox::drop-down { border: none; width: 24px; background: transparent; }
+QComboBox QAbstractItemView { background: #2C2C2E; border: 1px solid #3A3A3C; color: #F2F2F7; selection-background-color: #4A9EFF; border-radius: 6px; }
 QPushButton {
-    font-family: 'Trebuchet MS', Arial;
-    font-size: 11pt;
-    padding: 6px 16px;
-    border: 1px solid #CCCCCC;
-    border-radius: 0px;
-    background: #FFFFFF;
-    color: #2C2C2A;
+    padding: 7px 18px;
+    border: 1px solid #3A3A3C;
+    border-radius: 7px;
+    background: #3A3A3C;
+    color: #F2F2F7;
+    font-weight: 500;
     min-height: 28px;
 }
-QPushButton:hover {
-    background: #F0F0F0;
-    border-color: #E05555;
-}
-QPushButton#primary {
-    background: #E05555;
-    color: #FFFFFF;
-    border: none;
-}
-QPushButton#primary:hover {
-    background: #C04040;
-}
+QPushButton:hover { background: #48484A; border-color: #555558; }
+QPushButton:pressed { background: #2C2C2E; }
+QPushButton#primary { background: #4A9EFF; color: #FFFFFF; border: none; font-weight: 600; }
+QPushButton#primary:hover { background: #5AABFF; }
+QPushButton#primary:pressed { background: #3A8EEF; }
+QPushButton#primary:disabled { background: #1C3A5E; color: #4A6A8E; }
+QPushButton:disabled { background: #2C2C2E; color: #48484A; border-color: #3A3A3C; }
 QGroupBox {
-    font-family: 'Trebuchet MS', Arial;
-    font-size: 11pt;
-    font-weight: bold;
-    color: #2C2C2A;
-    border: 1px solid #CCCCCC;
-    margin-top: 12px;
-    padding-top: 8px;
+    background-color: #2C2C2E;
+    border: 1px solid #3A3A3C;
+    border-radius: 10px;
+    margin-top: 18px;
+    padding: 14px 14px 10px 14px;
+    font-weight: 600;
+    font-size: 10pt;
+    color: #F2F2F7;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
-    left: 8px;
-    padding: 0 4px;
+    subcontrol-position: top left;
+    left: 14px; top: -1px;
+    padding: 2px 6px;
+    background-color: #2C2C2E;
+    color: #8E8E93;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
 }
-QCheckBox {
-    font-family: 'Trebuchet MS', Arial;
-    font-size: 11pt;
-    color: #2C2C2A;
-    spacing: 8px;
+QCheckBox { color: #F2F2F7; spacing: 10px; font-size: 10pt; }
+QCheckBox::indicator { width: 18px; height: 18px; border: 1.5px solid #3A3A3C; border-radius: 5px; background: #1C1C1E; }
+QCheckBox::indicator:hover { border-color: #4A9EFF; }
+QCheckBox::indicator:checked {
+    background: #4A9EFF; border-color: #4A9EFF;
+    image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMiA2TDQuNSA4LjVMMTAgMyIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIxLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==);
 }
+QCheckBox:disabled { color: #48484A; }
 QTextEdit {
-    font-family: 'Courier New', monospace;
-    font-size: 10pt;
-    border: 1px solid #CCCCCC;
-    background: #FAFAFA;
-    color: #2C2C2A;
-    padding: 6px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+    font-size: 9pt;
+    border: 1px solid #3A3A3C;
+    border-radius: 8px;
+    background: #131315;
+    color: #A8B8C8;
+    padding: 8px;
 }
+QFormLayout QLabel { color: #8E8E93; font-size: 9pt; font-weight: 500; }
+QScrollArea { border: none; background: transparent; }
+QScrollBar:vertical { width: 6px; background: transparent; }
+QScrollBar::handle:vertical { background: #3A3A3C; border-radius: 3px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: #4A9EFF; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 """
 
 
@@ -333,10 +388,10 @@ class PageDatabase(QWizardPage):
         ok, msg = test_db_connection(values)
         if ok:
             self.lbl_test.setText("✔ " + msg)
-            self.lbl_test.setStyleSheet("color: #2E7D32; font-weight: bold;")
+            self.lbl_test.setStyleSheet("color: #30D158; font-weight: 600;")
         else:
             self.lbl_test.setText("✘ " + msg)
-            self.lbl_test.setStyleSheet("color: #E05555; font-weight: bold;")
+            self.lbl_test.setStyleSheet("color: #FF6B6B; font-weight: 600;")
 
 
 # ---------------------------------------------------------------------------
@@ -621,12 +676,12 @@ class PageScanAndSeller(QWizardPage):
             data = extract_seller_from_pdf(_Path(path))
         except Exception as e:
             self.lbl_pdf_read.setText(f"✘ {e}")
-            self.lbl_pdf_read.setStyleSheet("color: #E05555; font-weight: bold;")
+            self.lbl_pdf_read.setStyleSheet("color: #FF6B6B; font-weight: 600;")
             return
 
         if not data:
             self.lbl_pdf_read.setText("Keine Daten gefunden")
-            self.lbl_pdf_read.setStyleSheet("color: #E05555;")
+            self.lbl_pdf_read.setStyleSheet("color: #FF6B6B;")
             return
 
         mapping = {
@@ -649,10 +704,10 @@ class PageScanAndSeller(QWizardPage):
 
         if filled:
             self.lbl_pdf_read.setText(f"✔ {', '.join(filled)} erkannt")
-            self.lbl_pdf_read.setStyleSheet("color: #2E7D32; font-weight: bold;")
+            self.lbl_pdf_read.setStyleSheet("color: #30D158; font-weight: 600;")
         else:
             self.lbl_pdf_read.setText("Keine Daten erkannt")
-            self.lbl_pdf_read.setStyleSheet("color: #888888;")
+            self.lbl_pdf_read.setStyleSheet("color: #8E8E93;")
 
 
 # ---------------------------------------------------------------------------
@@ -872,9 +927,19 @@ class SetupWizard(QWizard):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("XRechnung-Setup-Assistent")
-        self.setWizardStyle(QWizard.ModernStyle)
-        self.setMinimumSize(680, 560)
+        self.setWizardStyle(QWizard.ClassicStyle)
+        self.setMinimumSize(720, 600)
+        # App-Icon
+        _icon_path = _find_icon("fuxmedia_dark.ico", "fuxmedia_dark_256.png")
+        if _icon_path:
+            self.setWindowIcon(QIcon(str(_icon_path)))
+        self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self.setStyleSheet(STYLESHEET)
+        # Banner und Logo ausblenden
+        self.setPixmap(QWizard.BannerPixmap,     QIcon().pixmap(1, 1))
+        self.setPixmap(QWizard.BackgroundPixmap, QIcon().pixmap(1, 1))
+        self.setPixmap(QWizard.WatermarkPixmap,  QIcon().pixmap(1, 1))
+        self.setPixmap(QWizard.LogoPixmap,       QIcon().pixmap(1, 1))
 
         self.setButtonText(QWizard.NextButton, "Weiter →")
         self.setButtonText(QWizard.BackButton, "← Zurück")
@@ -887,8 +952,6 @@ class SetupWizard(QWizard):
         self.addPage(PageScanAndSeller())
         self.addPage(PageFinish())
 
-        # Seitenleiste mit Schritten
-        self.setOption(QWizard.HaveCustomButton1, False)
         self.setOption(QWizard.IndependentPages, False)
 
 
@@ -918,8 +981,11 @@ def main():
     app.setApplicationName("XRechnung-Setup")
     app.setApplicationVersion("1.0")
 
-    font = QFont("Trebuchet MS", 11)
+    font = QFont("Segoe UI", 10)
     app.setFont(font)
+    _app_icon_path = _find_icon("fuxmedia_dark.ico", "fuxmedia_dark_256.png")
+    if _app_icon_path:
+        app.setWindowIcon(QIcon(str(_app_icon_path)))
 
     wizard = SetupWizard()
     wizard.show()
