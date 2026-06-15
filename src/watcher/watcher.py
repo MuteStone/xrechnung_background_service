@@ -508,24 +508,63 @@ def process_file(
 # Dateisammlung mit Paar-Erkennung
 # ---------------------------------------------------------------------------
 
+def _excluded_dirs(config: dict) -> list:
+    """
+    Liefert die aufgelösten Ausgabe-Ordner (processed/error/output), die beim
+    rekursiven Scan übersprungen werden müssen — andernfalls würden bereits
+    verschobene Dateien erneut eingelesen, falls diese Ordner innerhalb des
+    Watch-Folders liegen.
+    """
+    dirs = []
+    for key in ("PROCESSED_FOLDER", "ERROR_FOLDER", "OUTPUT_XML", "OUTPUT_PDF"):
+        val = config.get(key)
+        if val:
+            try:
+                dirs.append(Path(val).resolve())
+            except Exception:
+                pass
+    return dirs
+
+
+def _is_excluded(path: Path, excluded: list) -> bool:
+    """True, wenn path innerhalb eines der ausgeschlossenen Ordner liegt."""
+    try:
+        resolved = path.resolve()
+    except Exception:
+        return False
+    for d in excluded:
+        try:
+            if resolved == d or d in resolved.parents:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _collect_files(config: dict) -> tuple[list, dict]:
     """
-    Sammelt Dateien aus dem Watch-Folder und bildet PDF+JSON-Paare.
+    Sammelt Dateien aus dem Watch-Folder (inkl. Unterordner) und bildet
+    PDF+JSON-Paare.
     Gibt (files, companion_map) zurück.
     companion_map: {pdf_path: json_path}
     """
     watch_folder = Path(config["WATCH_FOLDER"])
     scan_json    = _cfg_bool(config, "SCAN_JSON")
+    excluded     = _excluded_dirs(config)
 
     pdf_map : dict = {}
     json_map: dict = {}
 
-    for p in watch_folder.glob("*.pdf"):
+    for p in watch_folder.rglob("*.pdf"):
+        if _is_excluded(p, excluded):
+            continue
         m = _INV_RE.search(p.stem)
         pdf_map[(m.group(1) if m else p.stem).lower()] = p
 
     if scan_json:
-        for p in watch_folder.glob("*.json"):
+        for p in watch_folder.rglob("*.json"):
+            if _is_excluded(p, excluded):
+                continue
             m = _INV_RE.search(p.stem)
             json_map[(m.group(1) if m else p.stem).lower()] = p
 
@@ -700,12 +739,15 @@ class _FileHandler(FileSystemEventHandler):
         self.config     = config
         self.dry_run    = dry_run
         self._scan_json = _cfg_bool(config, "SCAN_JSON")
+        self._excluded  = _excluded_dirs(config)
 
     def on_created(self, event: FileCreatedEvent) -> None:
         if event.is_directory:
             return
         path = Path(event.src_path)
         ext  = path.suffix.lower()
+        if _is_excluded(path, self._excluded):
+            return
         if ext == ".pdf" or (ext == ".json" and self._scan_json):
             logger.info("Neue Datei erkannt: %s", path.name)
             time.sleep(0.5)
@@ -729,7 +771,7 @@ def run_watch(config: dict, dry_run: bool = False) -> None:
 
     event_handler = _FileHandler(config, dry_run=dry_run)
     observer = Observer()
-    observer.schedule(event_handler, str(watch_folder), recursive=False)
+    observer.schedule(event_handler, str(watch_folder), recursive=True)
     observer.start()
 
     try:

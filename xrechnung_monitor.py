@@ -478,6 +478,39 @@ def save_config(values: dict, env_path: Path) -> None:
 # Verarbeitungs-Pipeline
 # ---------------------------------------------------------------------------
 
+def _excluded_dirs(config: dict) -> list:
+    """
+    Liefert die aufgelösten Ausgabe-Ordner (processed/error/output), die beim
+    rekursiven Scan übersprungen werden müssen — andernfalls würden bereits
+    verschobene Dateien erneut eingelesen, falls diese Ordner innerhalb des
+    Eingangsordners liegen.
+    """
+    dirs = []
+    for key in ("PROCESSED_FOLDER", "ERROR_FOLDER", "OUTPUT_XML", "OUTPUT_PDF"):
+        val = config.get(key)
+        if val:
+            try:
+                dirs.append(Path(val).resolve())
+            except Exception:
+                pass
+    return dirs
+
+
+def _is_excluded(path: Path, excluded: list) -> bool:
+    """True, wenn path innerhalb eines der ausgeschlossenen Ordner liegt."""
+    try:
+        resolved = path.resolve()
+    except Exception:
+        return False
+    for d in excluded:
+        try:
+            if resolved == d or d in resolved.parents:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _move_to_processed(
     file_path: Path,
     config: dict,
@@ -1001,10 +1034,12 @@ class WatchWorker(QThread):
 
     files_detected = Signal(list)
 
-    def __init__(self, watch_folder: str, scan_json: bool = False):
+    def __init__(self, watch_folder: str, scan_json: bool = False,
+                 excluded: Optional[list] = None):
         super().__init__()
         self._folder    = Path(watch_folder)
         self._scan_json = scan_json
+        self._excluded  = excluded or []
         self._stop      = False
 
     def request_stop(self):
@@ -1028,12 +1063,14 @@ class WatchWorker(QThread):
                     return
                 p = Path(event.src_path)
                 ext = p.suffix.lower()
+                if _is_excluded(p, outer._excluded):
+                    return
                 if ext == ".pdf" or (ext == ".json" and outer._scan_json):
                     time.sleep(0.5)
                     outer.files_detected.emit([p])
 
         observer = Observer()
-        observer.schedule(_Handler(), str(self._folder), recursive=False)
+        observer.schedule(_Handler(), str(self._folder), recursive=True)
         observer.start()
         try:
             while not self._stop:
@@ -1777,17 +1814,22 @@ class MainWindow(QMainWindow):
 
         options = self.output_tab.get_options()
 
-        # Dateien nach Rechnungsnummer gruppieren
+        # Dateien nach Rechnungsnummer gruppieren (inkl. Unterordner)
         _inv_re  = re.compile(r'(\d{8}-\d{3})')
         pdf_map  : dict = {}   # key → pdf_path
         json_map : dict = {}   # key → json_path
+        excluded = _excluded_dirs({**self._config, **self.output_tab.get_extra_config()})
 
-        for p in watch_folder.glob("*.pdf"):
+        for p in watch_folder.rglob("*.pdf"):
+            if _is_excluded(p, excluded):
+                continue
             m = _inv_re.search(p.stem)
             pdf_map[(m.group(1) if m else p.stem).lower()] = p
 
         if options.get("scan_json"):
-            for p in watch_folder.glob("*.json"):
+            for p in watch_folder.rglob("*.json"):
+                if _is_excluded(p, excluded):
+                    continue
                 m = _inv_re.search(p.stem)
                 json_map[(m.group(1) if m else p.stem).lower()] = p
 
@@ -1862,8 +1904,13 @@ class MainWindow(QMainWindow):
                                 "Eingangsordner nicht gefunden. Bitte Einstellungen prüfen.")
             return
 
-        options = self.output_tab.get_options()
-        self._watch_worker = WatchWorker(folder, scan_json=options.get("scan_json", False))
+        options  = self.output_tab.get_options()
+        excluded = _excluded_dirs({**self._config, **self.output_tab.get_extra_config()})
+        self._watch_worker = WatchWorker(
+            folder,
+            scan_json=options.get("scan_json", False),
+            excluded=excluded,
+        )
         self._watch_worker.files_detected.connect(self._on_files_detected)
         self._watch_worker.start()
 
