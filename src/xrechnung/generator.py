@@ -6,6 +6,7 @@ Eingabe: invoice_data-Dictionary aus get_invoice_full()
 Ausgabe: XML-Datei im OUTPUT_XML-Ordner
 """
 
+import base64
 import logging
 import re
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -15,6 +16,17 @@ from datetime import date
 from lxml import etree
 
 logger = logging.getLogger("xrechnung.generator")
+
+# OZG-RE: Beim E-Mail-Versand darf die XRechnungs-Datei 10 MB nicht überschreiten
+# (Leitfaden Rechnungsversender OZG-RE v2.4, S. 28). Die fertige XML inkl. der als
+# Base64 eingebetteten PDF muss unter diesem Limit bleiben — sonst weist OZG-RE die
+# gesamte Einreichung ab. Konservativ in dezimalen MB gerechnet.
+MAX_XML_BYTES = 10 * 1000 * 1000  # 10 MB
+
+
+class XRechnungError(Exception):
+    """Harte Abbruchbedingung bei der XRechnung-Erzeugung (z. B. PDF/XML zu groß)."""
+
 
 _NS = {
     "rsm": "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100",
@@ -61,7 +73,7 @@ def _dec(value, places=2):
     return str(_quantize(value, places))
 
 
-def generate(invoice_data, output_dir):
+def generate(invoice_data, output_dir, pdf_path=None):
     try:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -69,7 +81,7 @@ def generate(invoice_data, output_dir):
         invoice_number = invoice_data.get("invoice_number", "") or "rechnung"
         xml_path = output_dir / f"{invoice_number}.xml"
 
-        root = _build_xml(invoice_data)
+        root = _build_xml(invoice_data, pdf_path)
 
         etree.ElementTree(root).write(
             str(xml_path),
@@ -78,15 +90,29 @@ def generate(invoice_data, output_dir):
             pretty_print=True
         )
 
+        # OZG-RE-Größenlimit prüfen: Wenn die fertige XML (inkl. eingebetteter PDF)
+        # zu groß ist, würde OZG-RE die gesamte E-Mail ablehnen → Vorgang abbrechen,
+        # damit nicht versucht wird, eine nicht zustellbare Rechnung zu versenden.
+        xml_size = xml_path.stat().st_size
+        if xml_size > MAX_XML_BYTES:
+            xml_path.unlink(missing_ok=True)
+            raise XRechnungError(
+                f"XRechnungs-Datei zu groß für OZG-RE-Versand: "
+                f"{xml_size / 1_000_000:.1f} MB > {MAX_XML_BYTES / 1_000_000:.0f} MB "
+                f"(PDF zu groß zum Einbetten)."
+            )
+
         logger.info("XRechnung-XML erzeugt: %s", xml_path.name)
         return xml_path
 
+    except XRechnungError:
+        raise  # Harte Abbruchbedingung an die Pipeline weiterreichen
     except Exception as e:
         logger.exception("Fehler bei der XML-Generierung: %s", e)
         return None
 
 
-def _build_xml(d):
+def _build_xml(d, pdf_path=None):
     root = etree.Element(f"{{{_NS['rsm']}}}CrossIndustryInvoice", nsmap=_NS)
 
     # ExchangedDocumentContext
@@ -181,6 +207,11 @@ def _build_xml(d):
         bu = _el(buyer, "ram", "URIUniversalCommunication")
         _el(bu, "ram", "URIID", leitweg, schemeID="0204")
 
+    # BG-24 / BT-125: Rechnungs-PDF als eingebetteten Anhang in die XML aufnehmen.
+    # Nur eine eingebettete Datei wird vom OZG-RE-Portal an den Empfänger
+    # weitergereicht — ein separater E-Mail-Anhang wird dort verworfen.
+    _embed_pdf_attachment(agr, d, pdf_path)
+
     # HeaderTradeDelivery — BT-72 (Actual delivery date)
     # Primär: Liefer-/Leistungsdatum aus DB (lieferung-Feld).
     # Fallback: Rechnungsdatum, da bei FuxMedia-Rechnungen kein explizites
@@ -258,6 +289,46 @@ def _build_xml(d):
     _el(sm, "ram", "DuePayableAmount", _dec(sum_gross))
 
     return root
+
+
+def _embed_pdf_attachment(agr, d, pdf_path):
+    """
+    Bettet die Original-Rechnungs-PDF gemäß EN 16931 BG-24 / BT-125 als
+    Base64-kodierten Anhang in die XRechnung ein (CII:
+    ram:AdditionalReferencedDocument / ram:AttachmentBinaryObject).
+
+    Im Gegensatz zu einem separaten E-Mail-Anhang wird diese eingebettete
+    Datei vom OZG-RE-Portal an den Rechnungsempfänger weitergereicht.
+    """
+    if not pdf_path:
+        return  # Keine PDF erwartet (z. B. JSON-Quelle) — kein Anhang, kein Fehler
+
+    pdf_path = Path(pdf_path)
+    # Ab hier wird eine PDF erwartet. Lässt sie sich nicht einbetten, brechen wir
+    # den gesamten Vorgang ab — eine Rechnung ohne ihre PDF darf nicht rausgehen.
+    if not pdf_path.exists():
+        raise XRechnungError(f"Rechnungs-PDF nicht gefunden, Einbettung unmöglich: {pdf_path}")
+    if pdf_path.suffix.lower() != ".pdf":
+        raise XRechnungError(f"Erwartete PDF, erhalten: {pdf_path.name}")
+
+    try:
+        pdf_bytes = pdf_path.read_bytes()
+        encoded = base64.b64encode(pdf_bytes).decode("ascii")
+    except Exception as e:
+        raise XRechnungError(f"PDF konnte nicht eingebettet werden ({pdf_path.name}): {e}")
+
+    invoice_number = d.get("invoice_number", "") or pdf_path.stem
+
+    ref = _el(agr, "ram", "AdditionalReferencedDocument")
+    _el(ref, "ram", "IssuerAssignedID", invoice_number)          # BT-122
+    _el(ref, "ram", "TypeCode", "916")                            # 916 = zugehöriges Dokument
+    _el(ref, "ram", "Name", f"Rechnung {invoice_number}")         # BT-123
+    _el(
+        ref, "ram", "AttachmentBinaryObject", encoded,           # BT-125
+        mimeCode="application/pdf",
+        filename=pdf_path.name,
+    )
+    logger.info("PDF in XRechnung eingebettet (BT-125): %s", pdf_path.name)
 
 
 def _build_line_item(tx, item):

@@ -45,6 +45,10 @@ pdf/
 # ============================================================
 src/xrechnung/xsd/
 
+# KoSIT-Validierungswerkzeuge (JRE + Validator + Szenario) — per
+# tools/fetch_kosit.py beschafft, nicht eingecheckt (mehrere hundert MB).
+kosit/
+
 # ============================================================
 # Build / Packaging
 # ============================================================

@@ -59,6 +59,8 @@ def load_config() -> dict:
         "SELLER_PHONE":   os.getenv("SELLER_PHONE", ""),
         # Scan-Einstellungen
         "SCAN_JSON":        os.getenv("SCAN_JSON", "false"),
+        # KoSIT-Validierung (Schematron/Geschäftsregeln vor dem Versand)
+        "KOSIT_VALIDATION": os.getenv("KOSIT_VALIDATION", "true"),
         # Protokoll-Mail (interner Bericht nach Verarbeitungslauf)
         "REPORT_EMAIL":       os.getenv("REPORT_EMAIL", ""),
         "REPORT_ATTACH_XML":  os.getenv("REPORT_ATTACH_XML", "false"),

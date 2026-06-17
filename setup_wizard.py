@@ -91,6 +91,9 @@ def write_env(values: dict, path: Path) -> None:
         "# --- Scan-Einstellungen ---",
         f"SCAN_JSON={v('SCAN_JSON', 'false')}",
         "",
+        "# --- KoSIT-Validierung (Geschäftsregeln vor Versand) ---",
+        f"KOSIT_VALIDATION={v('KOSIT_VALIDATION', 'true')}",
+        "",
         "# --- Verkäuferdaten (Fallback wenn Datenbanktabelle fehlt) ---",
         f"SELLER_NAME={v('SELLER_NAME')}",
         f"SELLER_STREET={v('SELLER_STREET')}",
@@ -871,6 +874,21 @@ class PageFinish(QWizardPage):
                     log.append(f"✘ {exe_name} konnte nicht kopiert werden: {e}")
             else:
                 log.append(f"⚠ {exe_name} nicht gefunden — bitte manuell in {install_dir} ablegen.")
+
+        # KoSIT-Validierungswerkzeuge (JRE + Validator + Szenario) mitinstallieren
+        kosit_src = _src_dir / "kosit"
+        kosit_dst = install_dir / "kosit"
+        if kosit_src.is_dir():
+            try:
+                shutil.copytree(str(kosit_src), str(kosit_dst), dirs_exist_ok=True)
+                log.append(f"✔ KoSIT-Validierung → {kosit_dst}")
+            except Exception as e:
+                log.append(f"✘ KoSIT-Validierung konnte nicht kopiert werden: {e}")
+        else:
+            log.append(
+                "⚠ KoSIT-Validierungswerkzeuge nicht im Paket — "
+                "Geschäftsregel-Prüfung ist erst nach Bereitstellung von kosit/ aktiv."
+            )
 
         # .env in den Installationsordner schreiben
         try:

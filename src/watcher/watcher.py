@@ -434,16 +434,26 @@ def process_file(
         # XML direkt in den Processed-Unterordner des Rechnungsstems erzeugen
         xml_out_dir = Path(config["PROCESSED_FOLDER"]) / file_path.stem
         xml_out_dir.mkdir(parents=True, exist_ok=True)
-        xml_path = generate(invoice_data, xml_out_dir)
+        # Original-PDF in die XML einbetten (BT-125), damit OZG-RE sie an den
+        # Empfänger weiterreicht. Bei JSON-Quellen gibt es keine PDF.
+        source_pdf = file_path if file_path.suffix.lower() == ".pdf" else None
+        xml_path = generate(invoice_data, xml_out_dir, pdf_path=source_pdf)
+        xml_error = None
     except Exception as e:
         logger.error("XML-Generierung fehlgeschlagen: %s", e)
         xml_path = None
+        xml_error = str(e)
 
     if not xml_path:
-        logger.error("XML-Generierung fehlgeschlagen: %s", invoice_number)
+        reason = (
+            f"Vorgang abgebrochen (Rechnungsnummer: {invoice_number}): {xml_error}"
+            if xml_error else
+            f"XRechnung-XML konnte nicht erzeugt werden (Rechnungsnummer: {invoice_number})."
+        )
+        logger.error(reason)
         _move_to_error(
             file_path, config,
-            reason=f"XRechnung-XML konnte nicht erzeugt werden (Rechnungsnummer: {invoice_number}).",
+            reason=reason,
             companion_json=companion_json,
         )
         return False, None
@@ -468,6 +478,21 @@ def process_file(
         return False, None
 
     logger.info("XML-Validierung erfolgreich")
+
+    # Schritt 6: KoSIT-Validierung (Geschäftsregeln/Schematron)
+    # Harter Abbruch bei Ablehnung ODER wenn die Prüfung aktiviert, aber nicht
+    # verfügbar ist (fail-closed): lieber gar nicht versenden als fehlerhaft.
+    if str(config.get("KOSIT_VALIDATION", "true")).lower() == "true":
+        from src.xrechnung.kosit_validator import validate_kosit
+        kosit = validate_kosit(xml_path)
+        if not kosit.ok:
+            grund = kosit.detail
+            if kosit.messages:
+                grund += " | " + " ; ".join(kosit.messages[:5])
+            logger.error("KoSIT-Validierung abgebrochen: %s — %s", xml_path.name, grund)
+            _move_to_error(file_path, config, reason=grund, companion_json=companion_json)
+            return False, None
+        logger.info("KoSIT-Validierung bestanden")
 
 
     # Schritt 7: Übertragen
