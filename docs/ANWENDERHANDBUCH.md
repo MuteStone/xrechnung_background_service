@@ -79,6 +79,22 @@ sich), lässt sich der Dienst ohne Installer betreiben:
 > Bei `KOSIT_VALIDATION=true` (Standard) wird dann **jede** Rechnung abgebrochen
 > (Schutz vor ungeprüftem Versand).
 
+### 3.3 Produktivumgebung (Netzlaufwerk P:)
+
+Der produktive Ablageort ist `P:\Kundenverwaltung\XRechnung Automatisierung`. Dort
+liegen `XRechnung-Dienst.exe`, `XRechnung-Monitor.exe`, `kosit\` und die produktive
+`.env`.
+
+- **Update (neue Programmversion):** nur die beiden **neu gebauten EXEs** dorthin
+  kopieren. `kosit\` und `.env` bleiben unverändert.
+- **Erstinstallation:** `XRechnung-Setup.exe` **lokal mit Administratorrechten**
+  ausführen (auf dem Netzlaufwerk nicht möglich), danach den installierten Ordner
+  nach P: kopieren.
+
+> ⚠️ **Achtung `.env`:** Das Setup erkennt keine bestehende Installation und beginnt
+> mit **leeren Feldern**. Beim Update daher **nur die EXEs** kopieren und die
+> vorhandene Produktiv-`.env` **nicht** überschreiben (im Zweifel vorher sichern).
+
 ---
 
 ## 4. Konfiguration (`.env`)

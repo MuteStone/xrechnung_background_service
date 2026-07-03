@@ -298,12 +298,36 @@ aber keine Validierungswerkzeuge.
 
 ## 10. Deployment
 
-- **Mit Installer:** Setup.exe (Admin) → Wizard legt Dienst+Monitor+`kosit/`+`.env` ab.
-- **Ohne Installationsrechte (nur Datenzugriff):** Portablen Ordner kopieren —
-  `XRechnung-Monitor.exe` (und/oder `-Dienst.exe`) + `kosit/` + angepasste `.env`.
-  Die Programme lösen `.env` und `kosit/` relativ zur eigenen EXE auf, daher überall
-  lauffähig. Auf dem Server: `.env`-Pfade anpassen, DB/SMTP-Erreichbarkeit prüfen.
+**Produktivumgebung:** `P:\Kundenverwaltung\XRechnung Automatisierung`. Dort müssen
+neben den EXEs auch `kosit\` und die produktive `.env` liegen (die EXEs lösen beides
+relativ zu sich auf).
+
+**Build nur lokal:** Auf einem Netzlaufwerk (P:/Y:) wird **nicht** gebaut — dort
+fehlt die `.venv`, `build_all.bat` bricht ab. Erst eine lokale Arbeitskopie anlegen
+(siehe `CLAUDE.md`), lokal bauen, dann die Artefakte kopieren.
+
+### Update einer bestehenden Installation (Normalfall)
+Nach `build_all.bat` die beiden neu gebauten EXEs nach P: kopieren:
+`dist\XRechnung-Dienst.exe` und `dist\XRechnung-Monitor.exe`. `kosit\` und `.env`
+bleiben dort unangetastet (nur bei neuem KoSIT-Szenario auch `kosit\` mitkopieren).
+
+### Erstinstallation über das Setup
+- `XRechnung-Setup.exe` **lokal, mit Administratorrechten** (UAC) ausführen —
+  **nicht** auf dem Netzlaufwerk.
+- Der Wizard legt EXEs + `kosit\` + `.env` in den gewählten Ordner; diesen dann
+  nach P: kopieren.
+
+### ⚠️ Produktiv-.env nicht überschreiben
+Das Setup **erkennt keine bestehende Installation** und startet mit **leeren
+Feldern**. Beim Update daher **nur die EXEs** kopieren, **nicht** die `.env` — sonst
+wird die funktionierende Produktiv-Konfiguration mit leeren Werten überschrieben.
+Im Zweifel die Produktiv-`.env` vorher sichern.
+
+### Weiteres
 - **Auslöser:** Task Scheduler (Programm = EXE, „Ausführen in" = Ordner der EXE).
+- **Portable Alternative (nur Datenzugriff):** Ordner mit EXE + `kosit\` +
+  angepasster `.env` läuft überall; auf dem Ziel `.env`-Pfade anpassen, DB/SMTP-
+  Erreichbarkeit prüfen.
 
 ---
 
