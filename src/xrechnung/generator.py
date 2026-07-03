@@ -146,7 +146,10 @@ def _build_xml(d, pdf_path=None):
     # HeaderTradeAgreement
     agr = _el(tx, "ram", "ApplicableHeaderTradeAgreement")
 
-    leitweg = d.get("leitweg_id", "")
+    # Leitweg-ID normalisieren: sämtliche Leerzeichen/Whitespace entfernen.
+    # Das OZG-RE-Portal erkennt eine Leitweg-ID mit Leerzeichen nicht. Diese
+    # Bereinigung wirkt zentral für BuyerReference und die 0204-Empfängerkennung.
+    leitweg = re.sub(r"\s", "", d.get("leitweg_id", "") or "")
     if leitweg:
         _el(agr, "ram", "BuyerReference", leitweg)
 

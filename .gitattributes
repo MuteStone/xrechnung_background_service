@@ -1,0 +1,8 @@
+# Zeilenenden-Normalisierung für Textdateien
+* text=auto
+
+# Binärdateien NICHT durch CRLF-Konvertierung beschädigen
+*.pdf binary
+*.png binary
+*.ico binary
+*.zip binary

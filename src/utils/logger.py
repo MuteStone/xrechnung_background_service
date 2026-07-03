@@ -26,16 +26,25 @@ def _resolve_log_path(log_file: str) -> Path:
     # PureWindowsPath erkennt C:/... und C:\... korrekt als absolut
     # Path.is_absolute() versagt bei C:/... auf Windows selbst
     if p.is_absolute() or PureWindowsPath(log_file).is_absolute():
-        return Path(log_file)
-    if getattr(sys, "frozen", False):
-        base = Path(sys.executable).parent
+        result = Path(log_file)
     else:
-        # Projektstamm: 2 Ebenen über src/utils/logger.py
-        try:
-            base = Path(__file__).resolve().parents[2]
-        except IndexError:
-            base = Path(__file__).resolve().parent
-    return base / p
+        if getattr(sys, "frozen", False):
+            base = Path(sys.executable).parent
+        else:
+            # Projektstamm: 2 Ebenen über src/utils/logger.py
+            try:
+                base = Path(__file__).resolve().parents[2]
+            except IndexError:
+                base = Path(__file__).resolve().parent
+        result = base / p
+
+    # Robustheit: Zeigt LOG_FILE (fehlkonfiguriert) auf ein bestehendes
+    # Verzeichnis, hängen wir einen Standard-Dateinamen an. Andernfalls würde
+    # der FileHandler beim Öffnen mit PermissionError abstürzen und der Dienst
+    # bräche noch vor der Verarbeitung ab.
+    if result.exists() and result.is_dir():
+        result = result / "xrechnung_dienst.log"
+    return result
 
 
 def setup_logger(

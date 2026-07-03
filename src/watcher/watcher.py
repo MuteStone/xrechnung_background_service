@@ -586,12 +586,14 @@ def _collect_files(config: dict) -> tuple[list, dict]:
         m = _INV_RE.search(p.stem)
         pdf_map[(m.group(1) if m else p.stem).lower()] = p
 
-    if scan_json:
-        for p in watch_folder.rglob("*.json"):
-            if _is_excluded(p, excluded):
-                continue
-            m = _INV_RE.search(p.stem)
-            json_map[(m.group(1) if m else p.stem).lower()] = p
+    # JSONs IMMER einsammeln — für die Companion-Zuordnung (damit die JSON mit
+    # ihrer PDF verschoben und für ePost mitgelesen wird). SCAN_JSON steuert nur,
+    # ob JSONs OHNE zugehörige PDF eigenständig verarbeitet werden (siehe unten).
+    for p in watch_folder.rglob("*.json"):
+        if _is_excluded(p, excluded):
+            continue
+        m = _INV_RE.search(p.stem)
+        json_map[(m.group(1) if m else p.stem).lower()] = p
 
     companion_map: dict = {}
     files        : list = []
@@ -602,9 +604,11 @@ def _collect_files(config: dict) -> tuple[list, dict]:
             companion_map[pdf] = json_map[key]
             logger.info("Paar erkannt: %s + %s", pdf.name, json_map[key].name)
 
-    for key, json_path in json_map.items():
-        if key not in pdf_map:
-            files.append(json_path)
+    # Alleinstehende JSONs (ohne passende PDF) nur verarbeiten, wenn SCAN_JSON aktiv ist.
+    if scan_json:
+        for key, json_path in json_map.items():
+            if key not in pdf_map:
+                files.append(json_path)
 
     return files, companion_map
 
@@ -683,7 +687,7 @@ def run_once(config: dict, dry_run: bool = False) -> tuple[int, int]:
 
     files, companion_map = _collect_files(config)
     if not files:
-        logger.info("Keine Dateien im Watch-Folder gefunden.")
+        logger.info("Keine Rechnungen im Watch-Folder gefunden — Dienst wird beendet.")
         return 0, 0
 
     logger.info(

@@ -31,12 +31,16 @@ logs/*
 # ============================================================
 output/xml/*
 output/pdf/*
+output/csv/*
+output/json/*
 processed/*
 error/*
 pdf/
 
 !output/xml/.gitkeep
 !output/pdf/.gitkeep
+!output/csv/.gitkeep
+!output/json/.gitkeep
 !processed/.gitkeep
 !error/.gitkeep
 
@@ -60,6 +64,8 @@ build/
 # ============================================================
 # IDE / lokale Tools
 # ============================================================
+# Lokaler Entwickler-Leitfaden (nicht ins Repo)
+CLAUDE.md
 .vscode/settings.json
 .vscode/launch.json
 .idea/
